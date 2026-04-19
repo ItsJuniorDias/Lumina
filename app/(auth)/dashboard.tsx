@@ -136,7 +136,10 @@ export default function DashboardScreen() {
               <Text style={styles.networkText}>Ethereum</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.profileCircle}>
+          <TouchableOpacity
+            onPress={() => router.push("/profile")}
+            style={styles.profileCircle}
+          >
             <Ionicons name="person" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
