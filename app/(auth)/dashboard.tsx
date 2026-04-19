@@ -70,6 +70,10 @@ export default function DashboardScreen() {
     return `${address.slice(0, 5)}...${address.slice(-4)}`;
   };
 
+  const goToEthereumCharts = () => {
+    router.push("/ethereum-charts");
+  };
+
   const ActionButton = ({
     icon,
     label,
@@ -91,8 +95,19 @@ export default function DashboardScreen() {
     </TouchableOpacity>
   );
 
-  const TokenItem = ({ name, symbol, amount, value, iconColor }: any) => (
-    <View style={styles.tokenRow}>
+  const TokenItem = ({
+    name,
+    symbol,
+    amount,
+    value,
+    iconColor,
+    onPress,
+  }: any) => (
+    <TouchableOpacity
+      style={styles.tokenRow}
+      activeOpacity={0.7}
+      onPress={onPress} // <-- Recebendo a função aqui
+    >
       <View style={styles.tokenLeft}>
         <View style={[styles.tokenIcon, { backgroundColor: iconColor }]}>
           <FontAwesome5 name="ethereum" size={24} color="#fff" />
@@ -106,7 +121,7 @@ export default function DashboardScreen() {
         <Text style={styles.tokenAmount}>{amount}</Text>
         <Text style={styles.tokenValue}>{value}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -192,6 +207,7 @@ export default function DashboardScreen() {
               amount={isLoading ? "Carregando..." : `${ethBalance} ETH`}
               value={isLoading ? "--" : `R$ ${brlBalance}`}
               iconColor="#627EEA"
+              onPress={goToEthereumCharts}
             />
           </View>
         </View>
