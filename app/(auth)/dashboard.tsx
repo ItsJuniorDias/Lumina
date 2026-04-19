@@ -1,18 +1,75 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator, // <-- Adicionado
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { router } from "expo-router";
+import { api } from "@/server/api";
+
+const USER_WALLET = "0x4bc1B5e71d30F726eF38e638af080255Fe775fC9";
 
 export default function DashboardScreen() {
+  const [ethBalance, setEthBalance] = useState("0.00");
+  const [brlBalance, setBrlBalance] = useState("0,00");
+  const [isLoading, setIsLoading] = useState(true);
+
+  // ==========================================
+  // INTEGRAÇÃO COM A API USANDO AXIOS
+  // ==========================================
+  useEffect(() => {
+    async function fetchBalance() {
+      try {
+        const response = await api.get(`/balance/${USER_WALLET}`);
+
+        const data = response.data;
+
+        console.log(data, "DATA");
+
+        if (data.balance) {
+          const formattedEth = parseFloat(data.balance);
+          setEthBalance(formattedEth.toFixed(4));
+
+          const priceResponse = await fetch(
+            "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=brl",
+          );
+          const priceData = await priceResponse.json();
+          const ethPriceBRL = priceData.ethereum.brl;
+
+          const totalBrl = formattedEth * ethPriceBRL;
+
+          setBrlBalance(
+            totalBrl.toLocaleString("pt-BR", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Erro ao buscar saldo da API:",
+          error.response?.data || error.message,
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchBalance();
+  }, []);
+
+  // Formata a carteira para exibir de forma elegante (ex: 0x4bc...75fC)
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 5)}...${address.slice(-4)}`;
+  };
+
   const ActionButton = ({
     icon,
     label,
@@ -87,10 +144,23 @@ export default function DashboardScreen() {
         {/* Cartão de Saldo Glassmorphism */}
         <View style={styles.cardContainer}>
           <BlurView intensity={70} tint="dark" style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Saldo Total</Text>
-            <Text style={styles.balanceValue}>R$ 12.450,00</Text>
+            <Text style={styles.balanceLabel}>Saldo Total Estimado</Text>
+
+            {/* Renderização Condicional do Loader / Saldo */}
+            {isLoading ? (
+              <ActivityIndicator
+                size="large"
+                color="#fff"
+                style={{ alignSelf: "flex-start", marginVertical: 10 }}
+              />
+            ) : (
+              <Text style={styles.balanceValue}>R$ {brlBalance}</Text>
+            )}
+
             <View style={styles.cardFooter}>
-              <Text style={styles.walletAddress}>0x71C...3e4f</Text>
+              <Text style={styles.walletAddress}>
+                {formatAddress(USER_WALLET)}
+              </Text>
               <Ionicons
                 name="copy-outline"
                 size={16}
@@ -101,7 +171,6 @@ export default function DashboardScreen() {
         </View>
 
         {/* Ações Rápidas */}
-
         <View style={styles.actionsRow}>
           <ActionButton icon="add" label="Receber" route="/receive" />
           <ActionButton icon="arrow-up" label="Enviar" route="/send" />
@@ -113,19 +182,13 @@ export default function DashboardScreen() {
         <View style={styles.assetsSection}>
           <Text style={styles.sectionTitle}>Seus Ativos</Text>
           <View style={styles.assetsList}>
+            {/* ETH dinâmico baseado na API */}
             <TokenItem
               name="Ethereum"
               symbol="ETH"
-              amount="1.45 ETH"
-              value="R$ 10.200,00"
+              amount={isLoading ? "Carregando..." : `${ethBalance} ETH`}
+              value={isLoading ? "--" : `R$ ${brlBalance}`}
               iconColor="#627EEA"
-            />
-            <TokenItem
-              name="USD Coin"
-              symbol="USDC"
-              amount="450.00 USDC"
-              value="R$ 2.250,00"
-              iconColor="#2775CA"
             />
           </View>
         </View>
@@ -147,7 +210,6 @@ const styles = StyleSheet.create({
     top: -100,
     right: -100,
     opacity: 0.35,
-    // O LinearGradient do blob já faz o degrade, mas no iOS nativo o blur precisa de ajustes de sombra se quiser bordas suaves
   },
   scrollContent: {
     paddingTop: 60,

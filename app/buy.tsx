@@ -9,6 +9,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView, // <-- Importação do ScrollView
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -18,13 +19,12 @@ import { api } from "@/server/api";
 export default function BuyScreen() {
   const [brlAmount, setBrlAmount] = useState("");
   const [ethAmount, setEthAmount] = useState("0.00");
-  const [ethPrice, setEthPrice] = useState(0); // Preço de 1 ETH em BRL
+  const [ethPrice, setEthPrice] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Endereço da carteira do usuário (Substitua pela lógica de Auth/Wallet do seu app)
   const USER_WALLET = "0x4bc1B5e71d30F726eF38e638af080255Fe775fC9";
+  const MIN_PURCHASE_BRL = 50.0;
 
-  // 1. Busca a cotação real do ETH/BRL ao abrir a tela
   useEffect(() => {
     async function fetchPrice() {
       try {
@@ -35,55 +35,68 @@ export default function BuyScreen() {
         setEthPrice(data.ethereum.brl);
       } catch (error) {
         console.error("Erro ao buscar cotação:", error);
-        // Fallback caso a API falhe (ex: cotação aproximada)
-        setEthPrice(18000);
+        setEthPrice(18000); // Fallback
       }
     }
     fetchPrice();
   }, []);
 
-  // 2. Calcula a conversão em tempo real
   useEffect(() => {
     const val = parseFloat(brlAmount.replace(",", "."));
-    if (val > 0 && ethPrice > 0) {
+    if (!isNaN(val) && val > 0 && ethPrice > 0) {
       setEthAmount((val / ethPrice).toFixed(6));
     } else {
       setEthAmount("0.00");
     }
   }, [brlAmount, ethPrice]);
 
+  const handleAmountChange = (text) => {
+    let cleaned = text.replace(/[^0-9,]/g, "");
+    const parts = cleaned.split(",");
+    if (parts.length > 2) return;
+    if (parts[1] && parts[1].length > 2) {
+      cleaned = `${parts[0]},${parts[1].substring(0, 2)}`;
+    }
+    setBrlAmount(cleaned);
+  };
+
   const handlePurchase = async () => {
     const cleanAmount = parseFloat(brlAmount.replace(",", "."));
 
-    if (!brlAmount || cleanAmount <= 0) {
-      Alert.alert("Atenção", "Digite um valor válido.");
+    if (!brlAmount || isNaN(cleanAmount) || cleanAmount <= 0) {
+      Alert.alert("Atenção", "Digite um valor válido para compra.");
+      return;
+    }
+
+    if (cleanAmount < MIN_PURCHASE_BRL) {
+      Alert.alert(
+        "Atenção",
+        `O valor mínimo de compra é de R$ ${MIN_PURCHASE_BRL.toFixed(2).replace(".", ",")}.`,
+      );
       return;
     }
 
     setLoading(true);
     try {
-      // 3. Chamada para o backend com o payload completo que o Webhook espera
       const response = await api.post("/create-dynamic-checkout", {
         amountBRL: cleanAmount,
-        accountId: "acct_1TNmE8LqFArftgqw", // ID da conta conectada (Vendedor)
-        walletAddress: USER_WALLET, // Onde o usuário vai receber o ETH
+        accountId: "acct_1TNmZSLorZSSuaDB",
+        walletAddress: USER_WALLET,
       });
 
       const data = response.data;
 
       if (data.url) {
-        // Abre o Stripe Checkout
         const result = await WebBrowser.openBrowserAsync(data.url);
-
         if (result.type === "cancel") {
-          Alert.alert("Pagamento", "Checkout cancelado.");
+          Alert.alert("Pagamento", "A sessão de pagamento foi encerrada.");
         }
       }
     } catch (error) {
       console.error(error);
       Alert.alert(
         "Erro",
-        "Erro ao processar pagamento. Verifique sua conexão.",
+        "Não foi possível iniciar o pagamento. Tente novamente mais tarde.",
       );
     } finally {
       setLoading(false);
@@ -94,6 +107,7 @@ export default function BuyScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
     >
       <View style={styles.header}>
         <Text style={styles.title}>Comprar ETH</Text>
@@ -105,15 +119,20 @@ export default function BuyScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
+      {/* Alterado para ScrollView para o conteúdo fluir por baixo do botão */}
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.contentScroll}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.currencySymbol}>R$</Text>
         <TextInput
           style={styles.amountInput}
           placeholder="0,00"
           placeholderTextColor="#444"
-          keyboardType="numeric"
+          keyboardType="decimal-pad"
           value={brlAmount}
-          onChangeText={setBrlAmount}
+          onChangeText={handleAmountChange}
           autoFocus
         />
 
@@ -139,8 +158,9 @@ export default function BuyScreen() {
             Taxa 7% inclusa
           </Text>
         </View>
-      </View>
+      </ScrollView>
 
+      {/* Footer flutuante */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.primaryButton, loading && { opacity: 0.6 }]}
@@ -169,7 +189,17 @@ const styles = StyleSheet.create({
   },
   title: { color: "#fff", fontSize: 20, fontWeight: "bold" },
   closeButton: { backgroundColor: "#222", padding: 8, borderRadius: 20 },
-  content: { flex: 1, alignItems: "center", paddingHorizontal: 20 },
+
+  // Novos estilos para o ScrollView
+  scrollContainer: {
+    flex: 1,
+  },
+  contentScroll: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 130, // Espaço em branco para o botão flutuante não cobrir o último item
+  },
+
   currencySymbol: {
     color: "#888",
     fontSize: 24,
@@ -204,13 +234,25 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   paymentMethodText: { color: "#fff", marginLeft: 10, fontSize: 16 },
-  footer: { padding: 20, paddingBottom: 40 },
+
+  // Footer agora possui Position Absolute
+  footer: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 40 : 20, // Elevação segura dependendo do SO
+    left: 20,
+    right: 20,
+  },
   primaryButton: {
     backgroundColor: "#fff",
     height: 60,
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 5, // Sombra para o Android destacar o botão por cima
   },
   primaryButtonText: { fontSize: 18, fontWeight: "bold", color: "#000" },
 });
