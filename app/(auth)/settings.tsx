@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons"; // Biblioteca padrão do Expo
+import { router } from "expo-router";
 
 export default function SettingsScreen() {
   const [isFaceIdEnabled, setIsFaceIdEnabled] = React.useState(true);
@@ -82,6 +83,7 @@ export default function SettingsScreen() {
       {/* Secção: Rede e Web3 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>CONECTIVIDADE</Text>
+
         <View style={styles.group}>
           <SettingRow
             icon="globe-outline"
@@ -94,7 +96,7 @@ export default function SettingsScreen() {
             icon="list"
             name="Histórico de Transações"
             color="#8E8E93"
-            onPress={() => {}}
+            onPress={() => router.push("/history")}
           />
         </View>
       </View>

@@ -5,56 +5,111 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator, // <-- Adicionado
+  ActivityIndicator,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Image } from "expo-image";
 import { router } from "expo-router";
 import { api } from "@/server/api";
+import InteractiveBalanceCard from "@/components/card";
 
-const USER_WALLET = "0x4bc1B5e71d30F726eF38e638af080255Fe775fC9";
+// 1. Mapeamento para buscar preços no CoinGecko
+// A Binance retorna siglas (ETH, BTC). O CoinGecko exige IDs (ethereum, bitcoin).
+const COINGECKO_IDS: { [key: string]: string } = {
+  ETH: "ethereum",
+  BTC: "bitcoin",
+  USDT: "tether",
+  BNB: "binancecoin",
+};
+
+// 2. Mapeamento visual de Ícones e Cores
+const ASSET_THEME: {
+  [key: string]: { icon: string; color: string; name: string };
+} = {
+  ETH: { icon: "ethereum", color: "#627EEA", name: "Ethereum" },
+  BTC: { icon: "bitcoin", color: "#F7931A", name: "Bitcoin" },
+  USDT: { icon: "dollar-sign", color: "#26A17B", name: "Tether USD" },
+  BNB: { icon: "coins", color: "#F3BA2F", name: "Binance Coin" },
+};
 
 export default function DashboardScreen() {
-  const [ethBalance, setEthBalance] = useState("0.00");
-  const [brlBalance, setBrlBalance] = useState("0,00");
+  // Agora guardamos uma lista de ativos, e não apenas o ETH
+  const [assets, setAssets] = useState<any[]>([]);
+  const [totalBrlBalance, setTotalBrlBalance] = useState("0,00");
   const [isLoading, setIsLoading] = useState(true);
 
-  // ==========================================
-  // INTEGRAÇÃO COM A API USANDO AXIOS
-  // ==========================================
   useEffect(() => {
-    async function fetchBalance() {
+    async function fetchBinanceWallet() {
       try {
-        const response = await api.get(`/balance/${USER_WALLET}`);
+        // Busca os saldos na sua nova rota do backend
+        const response = await api.get("/wallet-binance");
+        const carteiraBinance = response.data.carteira;
 
-        const data = response.data;
+        if (carteiraBinance) {
+          const symbols = Object.keys(carteiraBinance);
+          let rawAssets = [];
+          let totalBrlCalculated = 0;
 
-        console.log(data, "DATA");
+          // Filtra quais IDs precisamos buscar no CoinGecko
+          const idsToFetch = symbols
+            .map((sym) => COINGECKO_IDS[sym])
+            .filter(Boolean); // Remove os undefined
 
-        if (data.balance) {
-          const formattedEth = parseFloat(data.balance);
-          setEthBalance(formattedEth.toFixed(4));
+          let prices = {};
+          if (idsToFetch.length > 0) {
+            const priceResponse = await fetch(
+              `https://api.coingecko.com/api/v3/simple/price?ids=${idsToFetch.join(
+                ",",
+              )}&vs_currencies=brl`,
+            );
+            prices = await priceResponse.json();
+          }
 
-          const priceResponse = await fetch(
-            "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=brl",
-          );
-          const priceData = await priceResponse.json();
-          const ethPriceBRL = priceData.ethereum.brl;
+          // Processa cada moeda retornada pela Binance
+          for (const symbol of symbols) {
+            const available = parseFloat(carteiraBinance[symbol].available);
+            const onOrder = parseFloat(carteiraBinance[symbol].onOrder);
+            const totalAmount = available + onOrder;
 
-          const totalBrl = formattedEth * ethPriceBRL;
+            const cgId = COINGECKO_IDS[symbol];
+            const priceInBrl = cgId && prices[cgId] ? prices[cgId].brl : 0;
+            const valueBrl = totalAmount * priceInBrl;
 
-          setBrlBalance(
-            totalBrl.toLocaleString("pt-BR", {
+            totalBrlCalculated += valueBrl;
+
+            // Busca tema visual, ou usa um padrão genérico
+            const theme = ASSET_THEME[symbol] || {
+              icon: "coins",
+              color: "#888",
+              name: symbol,
+            };
+
+            rawAssets.push({
+              id: symbol,
+              symbol: symbol,
+              name: theme.name,
+              amount: totalAmount.toFixed(4),
+              valueBrl: valueBrl.toLocaleString("pt-BR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              icon: theme.icon,
+              color: theme.color,
+            });
+          }
+
+          setAssets(rawAssets);
+          setTotalBrlBalance(
+            totalBrlCalculated.toLocaleString("pt-BR", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             }),
           );
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(
-          "Erro ao buscar saldo da API:",
+          "Erro ao buscar saldo da Binance:",
           error.response?.data || error.message,
         );
       } finally {
@@ -62,16 +117,13 @@ export default function DashboardScreen() {
       }
     }
 
-    fetchBalance();
+    fetchBinanceWallet();
   }, []);
 
-  // Formata a carteira para exibir de forma elegante (ex: 0x4bc...75fC)
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 5)}...${address.slice(-4)}`;
-  };
-
-  const goToEthereumCharts = () => {
-    router.push("/ethereum-charts");
+  const goToCharts = (symbol: string) => {
+    // Exemplo de como rotear dinamicamente dependendo da moeda clicada
+    if (symbol === "ETH") router.push("/ethereum-charts");
+    // if (symbol === 'BTC') router.push("/bitcoin-charts");
   };
 
   const ActionButton = ({
@@ -101,16 +153,17 @@ export default function DashboardScreen() {
     amount,
     value,
     iconColor,
+    iconName,
     onPress,
   }: any) => (
     <TouchableOpacity
       style={styles.tokenRow}
       activeOpacity={0.7}
-      onPress={onPress} // <-- Recebendo a função aqui
+      onPress={onPress}
     >
       <View style={styles.tokenLeft}>
         <View style={[styles.tokenIcon, { backgroundColor: iconColor }]}>
-          <FontAwesome5 name="ethereum" size={24} color="#fff" />
+          <FontAwesome5 name={iconName} size={20} color="#fff" />
         </View>
         <View>
           <Text style={styles.tokenName}>{name}</Text>
@@ -119,14 +172,13 @@ export default function DashboardScreen() {
       </View>
       <View style={styles.tokenRight}>
         <Text style={styles.tokenAmount}>{amount}</Text>
-        <Text style={styles.tokenValue}>{value}</Text>
+        <Text style={styles.tokenValue}>R$ {value}</Text>
       </View>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {/* Background com LinearGradient substituindo o fundo sólido */}
       <LinearGradient
         colors={["#2A1B54", "#080414", "#000000"]}
         locations={[0, 0.4, 1]}
@@ -135,20 +187,18 @@ export default function DashboardScreen() {
         style={StyleSheet.absoluteFillObject}
       />
 
-      {/* Opcional: Manter um blob secundário com gradiente para mais complexidade */}
       <LinearGradient colors={["#5856D6", "transparent"]} style={styles.blob} />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Olá, Alexandre</Text>
             <View style={styles.networkBadge}>
               <View style={styles.onlineDot} />
-              <Text style={styles.networkText}>Ethereum</Text>
+              <Text style={styles.networkText}>Binance Connected</Text>
             </View>
           </View>
           <TouchableOpacity
@@ -159,36 +209,11 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Cartão de Saldo Glassmorphism */}
-        <View style={styles.cardContainer}>
-          <BlurView intensity={70} tint="dark" style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Saldo Total Estimado</Text>
+        <InteractiveBalanceCard
+          balance={totalBrlBalance}
+          isLoading={isLoading}
+        />
 
-            {/* Renderização Condicional do Loader / Saldo */}
-            {isLoading ? (
-              <ActivityIndicator
-                size="large"
-                color="#fff"
-                style={{ alignSelf: "flex-start", marginVertical: 10 }}
-              />
-            ) : (
-              <Text style={styles.balanceValue}>R$ {brlBalance}</Text>
-            )}
-
-            <View style={styles.cardFooter}>
-              <Text style={styles.walletAddress}>
-                {formatAddress(USER_WALLET)}
-              </Text>
-              <Ionicons
-                name="copy-outline"
-                size={16}
-                color="rgba(255,255,255,0.4)"
-              />
-            </View>
-          </BlurView>
-        </View>
-
-        {/* Ações Rápidas */}
         <View style={styles.actionsRow}>
           <ActionButton icon="add" label="Receber" route="/receive" />
           <ActionButton icon="arrow-up" label="Enviar" route="/send" />
@@ -196,19 +221,30 @@ export default function DashboardScreen() {
           <ActionButton icon="card" label="Comprar" route="/buy" />
         </View>
 
-        {/* Lista de Ativos */}
         <View style={styles.assetsSection}>
           <Text style={styles.sectionTitle}>Seus Ativos</Text>
           <View style={styles.assetsList}>
-            {/* ETH dinâmico baseado na API */}
-            <TokenItem
-              name="Ethereum"
-              symbol="ETH"
-              amount={isLoading ? "Carregando..." : `${ethBalance} ETH`}
-              value={isLoading ? "--" : `R$ ${brlBalance}`}
-              iconColor="#627EEA"
-              onPress={goToEthereumCharts}
-            />
+            {isLoading ? (
+              <ActivityIndicator size="large" color="#fff" />
+            ) : assets.length === 0 ? (
+              <Text style={{ color: "rgba(255,255,255,0.5)" }}>
+                Nenhum ativo encontrado.
+              </Text>
+            ) : (
+              // 🔥 O .map() gera a lista dinamicamente baseada na resposta da Binance
+              assets.map((asset) => (
+                <TokenItem
+                  key={asset.id}
+                  name={asset.name}
+                  symbol={asset.symbol}
+                  amount={asset.amount}
+                  value={asset.valueBrl}
+                  iconColor={asset.color}
+                  iconName={asset.icon}
+                  onPress={() => goToCharts(asset.symbol)}
+                />
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
@@ -217,10 +253,7 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
+  container: { flex: 1, backgroundColor: "#000" },
   blob: {
     position: "absolute",
     width: 350,
@@ -230,39 +263,23 @@ const styles = StyleSheet.create({
     right: -100,
     opacity: 0.35,
   },
-  scrollContent: {
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 100,
-  },
+  scrollContent: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 100 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 30,
   },
-  greeting: {
-    color: "#fff",
-    fontSize: 16,
-    opacity: 0.6,
-  },
-  networkBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-  },
+  greeting: { color: "#fff", fontSize: 16, opacity: 0.6 },
+  networkBadge: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   onlineDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#34C759",
+    backgroundColor: "#F3BA2F", // Mudei para amarelo Binance
     marginRight: 6,
   },
-  networkText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  networkText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   profileCircle: {
     width: 44,
     height: 44,
@@ -271,11 +288,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardContainer: {
-    marginBottom: 30,
-    borderRadius: 28,
-    overflow: "hidden",
-  },
+  cardContainer: { marginBottom: 30, borderRadius: 28, overflow: "hidden" },
   balanceCard: {
     padding: 24,
     borderWidth: 1,
@@ -311,9 +324,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 40,
   },
-  actionItem: {
-    alignItems: "center",
-  },
+  actionItem: { alignItems: "center" },
   actionIconCircle: {
     width: 56,
     height: 56,
@@ -324,33 +335,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
-  actionLabel: {
-    color: "#fff",
-    fontSize: 13,
-    marginTop: 8,
-    fontWeight: "500",
-  },
-  assetsSection: {
-    flex: 1,
-  },
+  actionLabel: { color: "#fff", fontSize: 13, marginTop: 8, fontWeight: "500" },
+  assetsSection: { flex: 1 },
   sectionTitle: {
     color: "#fff",
     fontSize: 20,
     fontWeight: "700",
     marginBottom: 20,
   },
-  assetsList: {
-    gap: 20,
-  },
+  assetsList: { gap: 20 },
   tokenRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  tokenLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  tokenLeft: { flexDirection: "row", alignItems: "center" },
   tokenIcon: {
     width: 44,
     height: 44,
@@ -359,25 +358,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tokenName: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  tokenSymbol: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 14,
-  },
-  tokenRight: {
-    alignItems: "flex-end",
-  },
-  tokenAmount: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  tokenValue: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 14,
-  },
+  tokenName: { color: "#fff", fontSize: 17, fontWeight: "600" },
+  tokenSymbol: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
+  tokenRight: { alignItems: "flex-end" },
+  tokenAmount: { color: "#fff", fontSize: 17, fontWeight: "600" },
+  tokenValue: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
 });

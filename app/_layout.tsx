@@ -27,6 +27,11 @@ export default function RootLayout() {
               name="ethereum-charts"
               options={{ animation: "fade" }}
             />
+            <Stack.Screen
+              name="connect-binance"
+              options={{ animation: "fade" }}
+            />
+            <Stack.Screen name="history" options={{ animation: "fade" }} />
 
             {/* Novas Telas de Ação como Modais */}
             <Stack.Screen name="receive" options={{ presentation: "modal" }} />
