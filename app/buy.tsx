@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { api } from "@/server/api"; // Certifique-se que o baseURL aponta para https://api.blogclub.dev.br
+import { api } from "@/server/api";
 
 export default function BuyScreen() {
   const [usdtAmount, setUsdtAmount] = useState("");
@@ -21,13 +21,12 @@ export default function BuyScreen() {
   const [ethPrice, setEthPrice] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Valor mínimo de compra exigido pela Binance (geralmente $5 a $10 USDT)
   const MIN_PURCHASE_USDT = 10.0;
+  const PLATFORM_FEE_PERCENTAGE = 0.02; // 2% da plataforma
 
   useEffect(() => {
     async function fetchPrice() {
       try {
-        // Buscando a cotação do Ethereum em Dólar para bater com o USDT
         const response = await fetch(
           "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
         );
@@ -40,10 +39,12 @@ export default function BuyScreen() {
     fetchPrice();
   }, []);
 
+  // Recalcula a estimativa de ETH já descontando a taxa da plataforma
   useEffect(() => {
     const val = parseFloat(usdtAmount.replace(",", "."));
     if (!isNaN(val) && val > 0 && ethPrice > 0) {
-      setEthAmount((val / ethPrice).toFixed(6));
+      const investableAmount = val * (1 - PLATFORM_FEE_PERCENTAGE);
+      setEthAmount((investableAmount / ethPrice).toFixed(6));
     } else {
       setEthAmount("0.000000");
     }
@@ -51,8 +52,6 @@ export default function BuyScreen() {
 
   const handleAmountChange = (text: string) => {
     let cleaned = text.replace(/[^0-9,.]/g, "").replace(",", ".");
-
-    // Evita múltiplos pontos decimais
     const parts = cleaned.split(".");
     if (parts.length > 2) return;
     if (parts[1] && parts[1].length > 2) {
@@ -82,17 +81,25 @@ export default function BuyScreen() {
 
     setLoading(true);
     try {
-      // Dispara a ordem real de compra para o seu servidor na DigitalOcean
       const response = await api.post("/buy-eth", {
         amountInUSDT: cleanAmount,
       });
 
       if (response.data.success) {
-        Alert.alert(
-          "TRANSAÇÃO CONCLUÍDA",
-          `Ordem executada com sucesso.\n\nETH Recebido: ≈ ${response.data.data.executedQty || ethAmount}\nStatus: ${response.data.data.status}`,
-          [{ text: "OK", onPress: () => router.back() }],
-        );
+        // Lendo o recibo gerado pelo backend
+        const receipt = response.data.receipt;
+
+        let successMessage = "Ordem executada com sucesso na Binance.";
+        if (receipt) {
+          successMessage =
+            `Valor Solicitado: $${receipt.requestedAmount}\n` +
+            `Taxa Retida (2%): $${receipt.platformFeeApplied.toFixed(2)}\n` +
+            `Executado na Rede: $${receipt.actualExecutedOnBinance}`;
+        }
+
+        Alert.alert("TRANSAÇÃO CONCLUÍDA", successMessage, [
+          { text: "OK", onPress: () => router.back() },
+        ]);
       } else {
         throw new Error(response.data.message || "Falha na execução.");
       }
@@ -170,12 +177,33 @@ export default function BuyScreen() {
           </View>
           <View style={styles.receiptRow}>
             <Text style={styles.receiptLabel}>ROUTING</Text>
-            <Text style={styles.receiptValue}>Binance API v3</Text>
+            <Text style={styles.receiptValue}>Lumina / Binance API</Text>
           </View>
           <View style={styles.receiptRow}>
-            <Text style={styles.receiptLabel}>FEE_ESTIMATE</Text>
-            <Text style={styles.receiptValue}>0.1% Spot</Text>
+            <Text style={styles.receiptLabel}>PLATFORM_FEE</Text>
+            <Text style={styles.receiptValue}>2.00%</Text>
           </View>
+          {usdtAmount && !isNaN(parseFloat(usdtAmount)) ? (
+            <View
+              style={[
+                styles.receiptRow,
+                {
+                  marginTop: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: "#222",
+                  paddingTop: 8,
+                },
+              ]}
+            >
+              <Text style={[styles.receiptLabel, { color: "#00FFA3" }]}>
+                ESTIMATED_FEE
+              </Text>
+              <Text style={[styles.receiptValue, { color: "#00FFA3" }]}>
+                ${(parseFloat(usdtAmount) * PLATFORM_FEE_PERCENTAGE).toFixed(2)}{" "}
+                USDT
+              </Text>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 

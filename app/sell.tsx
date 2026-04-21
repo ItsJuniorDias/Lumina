@@ -10,12 +10,13 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ActivityIndicator,
+  Alert,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import LinearGradient from "react-native-linear-gradient";
+import { api } from "@/server/api"; // Certifique-se da importação da sua API
 
 // --- CONFIGURAÇÃO DE DESIGN (CYBER DESIGN SYSTEM) ---
 const COLORS = {
@@ -48,17 +49,24 @@ const CyberBorder = ({ children, color = COLORS.CYAN, style }: any) => (
 
 export default function SellScreen() {
   // 1. ESTADO E CONSTANTES
-  const BALANCE_ETH = 1.45;
+  const BALANCE_ETH = 1.45; // Em produção, virá do seu banco/contexto
+  const PLATFORM_FEE_PERCENTAGE = 0.02; // 2% da plataforma
+
   const [amount, setAmount] = useState("");
   const [ethRateBRL, setEthRateBRL] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loadingRate, setLoadingRate] = useState(true);
+  const [isExecuting, setIsExecuting] = useState(false);
 
-  // 2. LÓGICA DE VALIDAÇÃO
+  // 2. LÓGICA DE VALIDAÇÃO E TAXAS
   const numericAmount = parseFloat(amount.replace(",", ".")) || 0;
   const isOverBalance = numericAmount > BALANCE_ETH;
   const isInvalid = !amount || numericAmount <= 0 || isOverBalance;
 
-  // 3. BUSCA DE PREÇO (API REAL)
+  // Calcula a taxa e o montante real a ser liquidado em BRL
+  const feeAmountETH = numericAmount * PLATFORM_FEE_PERCENTAGE;
+  const sellableAmountETH = numericAmount - feeAmountETH;
+
+  // 3. BUSCA DE PREÇO
   const fetchEthPrice = useCallback(async () => {
     try {
       const response = await fetch(
@@ -71,7 +79,7 @@ export default function SellScreen() {
     } catch (error) {
       console.log("Erro ao buscar cotação:", error);
     } finally {
-      setLoading(false);
+      setLoadingRate(false);
     }
   }, []);
 
@@ -89,25 +97,58 @@ export default function SellScreen() {
 
   const handleExecuteSell = async () => {
     if (isInvalid) return;
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    console.log(`Liquidação executada: ${numericAmount} ETH`);
-    router.back();
+    setIsExecuting(true);
+
+    try {
+      // Dispara para o endpoint que você criou no Node
+      const response = await api.post("/sell-eth", {
+        amountInETH: numericAmount,
+      });
+
+      if (response.data.success) {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+
+        const receipt = response.data.receipt;
+        let successMessage = "Liquidação executada com sucesso.";
+
+        if (receipt) {
+          successMessage =
+            `Quantia Retirada: ${receipt.requestedAmountETH} ETH\n` +
+            `Taxa do Protocolo: ${receipt.platformFeeETH.toFixed(4)} ETH\n` +
+            `Liquidado no Mercado: ${receipt.actualExecutedOnBinanceETH} ETH`;
+        }
+
+        Alert.alert("PROTOCOLO CONCLUÍDO", successMessage, [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      } else {
+        throw new Error(response.data.message || "Falha na execução.");
+      }
+    } catch (error: any) {
+      console.error(error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "FALHA NO PROTOCOLO",
+        error.response?.data?.message || "Não foi possível liquidar o ativo.",
+      );
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
-  // 5. CÁLCULO DE RECEBIMENTO
+  // 5. CÁLCULO DE RECEBIMENTO (Baseado no valor com taxa descontada)
   const receiveAmountBRL =
-    numericAmount > 0
-      ? (numericAmount * ethRateBRL).toLocaleString("pt-BR", {
+    sellableAmountETH > 0
+      ? (sellableAmountETH * ethRateBRL).toLocaleString("pt-BR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })
       : "0,00";
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <View style={styles.container}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.inner}>
           {/* HEADER */}
@@ -119,6 +160,7 @@ export default function SellScreen() {
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => router.back()}
+              disabled={isExecuting}
             >
               <Ionicons name="close" size={24} color={COLORS.CYAN} />
             </TouchableOpacity>
@@ -141,6 +183,7 @@ export default function SellScreen() {
                   value={amount}
                   onChangeText={setAmount}
                   selectionColor={COLORS.CYAN}
+                  editable={!isExecuting}
                 />
                 <View
                   style={[
@@ -179,7 +222,11 @@ export default function SellScreen() {
                     ? "SALDO INSUFICIENTE"
                     : `DISPONÍVEL: ${BALANCE_ETH} ETH`}
                 </Text>
-                <TouchableOpacity style={styles.maxButton} onPress={handleMax}>
+                <TouchableOpacity
+                  style={styles.maxButton}
+                  onPress={handleMax}
+                  disabled={isExecuting}
+                >
                   <Text style={styles.maxButtonText}>MÁX</Text>
                 </TouchableOpacity>
               </View>
@@ -209,7 +256,7 @@ export default function SellScreen() {
                   <View
                     style={[styles.nexusModule, { alignItems: "flex-end" }]}
                   >
-                    <Text style={styles.nexusLabel}>DESTINO (BRL)</Text>
+                    <Text style={styles.nexusLabel}>DESTINO ESTIMADO</Text>
                     <Text style={[styles.nexusValue, { color: COLORS.CYAN }]}>
                       R$ {receiveAmountBRL}
                     </Text>
@@ -218,12 +265,22 @@ export default function SellScreen() {
 
                 <View style={styles.divider} />
 
+                {/* INFO DE TAXAS TRANSPARENTES */}
+                <View style={styles.feeInfoContainer}>
+                  <Text style={styles.feeLabel}>TAXA DO PROTOCOLO (2%):</Text>
+                  <Text style={styles.feeValue}>
+                    - {feeAmountETH > 0 ? feeAmountETH.toFixed(4) : "0.0000"}{" "}
+                    ETH
+                  </Text>
+                </View>
+
                 <View style={styles.rateInfo}>
-                  {loading ? (
+                  {loadingRate ? (
                     <ActivityIndicator size="small" color={COLORS.CYAN} />
                   ) : (
                     <Text style={styles.rateText}>
-                      Taxa: 1 ETH = R$ {ethRateBRL.toLocaleString("pt-BR")}
+                      NETWORK_RATE: 1 ETH = R${" "}
+                      {ethRateBRL.toLocaleString("pt-BR")}
                     </Text>
                   )}
                 </View>
@@ -235,12 +292,12 @@ export default function SellScreen() {
           <View style={styles.footer}>
             <TouchableOpacity
               activeOpacity={0.8}
-              disabled={isInvalid}
+              disabled={isInvalid || isExecuting}
               onPress={handleExecuteSell}
             >
               <LinearGradient
                 colors={
-                  isInvalid
+                  isInvalid || isExecuting
                     ? [COLORS.GREY, COLORS.GREY]
                     : [COLORS.MAGENTA, "#800080"]
                 }
@@ -248,20 +305,26 @@ export default function SellScreen() {
                 end={{ x: 1, y: 1 }}
                 style={styles.primaryButton}
               >
-                <Text
-                  style={[
-                    styles.primaryButtonText,
-                    isInvalid && { opacity: 0.5 },
-                  ]}
-                >
-                  {isOverBalance ? "SALDO INSUFICIENTE" : "EXECUTAR LIQUIDAÇÃO"}
-                </Text>
+                {isExecuting ? (
+                  <ActivityIndicator color={COLORS.CYAN} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.primaryButtonText,
+                      isInvalid && { opacity: 0.5 },
+                    ]}
+                  >
+                    {isOverBalance
+                      ? "SALDO INSUFICIENTE"
+                      : "EXECUTAR LIQUIDAÇÃO"}
+                  </Text>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>
       </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -355,8 +418,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
     marginVertical: 15,
   },
+
+  feeInfoContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  feeLabel: { color: COLORS.MAGENTA, fontSize: 10, fontWeight: "bold" },
+  feeValue: { color: COLORS.MAGENTA, fontSize: 12, fontWeight: "bold" },
+
   rateInfo: { alignItems: "center" },
-  rateText: { color: COLORS.TEXT_MUTED, fontSize: 12 },
+  rateText: {
+    color: COLORS.TEXT_MUTED,
+    fontSize: 10,
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+  },
 
   footer: { padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 24 },
   primaryButton: {
