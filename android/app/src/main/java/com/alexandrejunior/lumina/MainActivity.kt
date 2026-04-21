@@ -1,4 +1,4 @@
-package com.anonymous.lumina
+package com.alexandrejunior.lumina
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

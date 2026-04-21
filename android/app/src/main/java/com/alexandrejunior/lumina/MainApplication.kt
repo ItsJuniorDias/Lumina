@@ -1,4 +1,4 @@
-package com.anonymous.lumina
+package com.alexandrejunior.lumina
 
 import android.app.Application
 import android.content.res.Configuration

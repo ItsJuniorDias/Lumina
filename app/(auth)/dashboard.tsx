@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,7 +10,7 @@ import {
 import { BlurView } from "expo-blur";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { api } from "@/server/api";
 import InteractiveBalanceCard from "@/components/card";
 
@@ -39,86 +39,91 @@ export default function DashboardScreen() {
   const [totalBrlBalance, setTotalBrlBalance] = useState("0,00");
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchBinanceWallet() {
-      try {
-        // Busca os saldos na sua nova rota do backend
-        const response = await api.get("/wallet-binance");
-        const carteiraBinance = response.data.carteira;
+  useFocusEffect(
+    useCallback(() => {
+      // Força o estado de loading ao voltar para a tela
+      setIsLoading(true);
 
-        if (carteiraBinance) {
-          const symbols = Object.keys(carteiraBinance);
-          let rawAssets = [];
-          let totalBrlCalculated = 0;
+      async function fetchBinanceWallet() {
+        try {
+          // Busca os saldos na sua nova rota do backend
+          const response = await api.get("/wallet-binance");
+          const carteiraBinance = response.data.carteira;
 
-          // Filtra quais IDs precisamos buscar no CoinGecko
-          const idsToFetch = symbols
-            .map((sym) => COINGECKO_IDS[sym])
-            .filter(Boolean); // Remove os undefined
+          if (carteiraBinance) {
+            const symbols = Object.keys(carteiraBinance);
+            let rawAssets = [];
+            let totalBrlCalculated = 0;
 
-          let prices = {};
-          if (idsToFetch.length > 0) {
-            const priceResponse = await fetch(
-              `https://api.coingecko.com/api/v3/simple/price?ids=${idsToFetch.join(
-                ",",
-              )}&vs_currencies=brl`,
-            );
-            prices = await priceResponse.json();
-          }
+            // Filtra quais IDs precisamos buscar no CoinGecko
+            const idsToFetch = symbols
+              .map((sym) => COINGECKO_IDS[sym])
+              .filter(Boolean); // Remove os undefined
 
-          // Processa cada moeda retornada pela Binance
-          for (const symbol of symbols) {
-            const available = parseFloat(carteiraBinance[symbol].available);
-            const onOrder = parseFloat(carteiraBinance[symbol].onOrder);
-            const totalAmount = available + onOrder;
+            let prices: any = {};
+            if (idsToFetch.length > 0) {
+              const priceResponse = await fetch(
+                `https://api.coingecko.com/api/v3/simple/price?ids=${idsToFetch.join(
+                  ",",
+                )}&vs_currencies=brl`,
+              );
+              prices = await priceResponse.json();
+            }
 
-            const cgId = COINGECKO_IDS[symbol];
-            const priceInBrl = cgId && prices[cgId] ? prices[cgId].brl : 0;
-            const valueBrl = totalAmount * priceInBrl;
+            // Processa cada moeda retornada pela Binance
+            for (const symbol of symbols) {
+              const available = parseFloat(carteiraBinance[symbol].available);
+              const onOrder = parseFloat(carteiraBinance[symbol].onOrder);
+              const totalAmount = available + onOrder;
 
-            totalBrlCalculated += valueBrl;
+              const cgId = COINGECKO_IDS[symbol];
+              const priceInBrl = cgId && prices[cgId] ? prices[cgId].brl : 0;
+              const valueBrl = totalAmount * priceInBrl;
 
-            // Busca tema visual, ou usa um padrão genérico
-            const theme = ASSET_THEME[symbol] || {
-              icon: "coins",
-              color: "#888",
-              name: symbol,
-            };
+              totalBrlCalculated += valueBrl;
 
-            rawAssets.push({
-              id: symbol,
-              symbol: symbol,
-              name: theme.name,
-              amount: totalAmount.toFixed(4),
-              valueBrl: valueBrl.toLocaleString("pt-BR", {
+              // Busca tema visual, ou usa um padrão genérico
+              const theme = ASSET_THEME[symbol] || {
+                icon: "coins",
+                color: "#888",
+                name: symbol,
+              };
+
+              rawAssets.push({
+                id: symbol,
+                symbol: symbol,
+                name: theme.name,
+                amount: totalAmount.toFixed(4),
+                valueBrl: valueBrl.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }),
+                icon: theme.icon,
+                color: theme.color,
+              });
+            }
+
+            setAssets(rawAssets);
+            setTotalBrlBalance(
+              totalBrlCalculated.toLocaleString("pt-BR", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               }),
-              icon: theme.icon,
-              color: theme.color,
-            });
+            );
           }
-
-          setAssets(rawAssets);
-          setTotalBrlBalance(
-            totalBrlCalculated.toLocaleString("pt-BR", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            }),
+        } catch (error: any) {
+          console.error(
+            "Erro ao buscar saldo da Binance:",
+            error.response?.data || error.message,
           );
+        } finally {
+          setIsLoading(false);
         }
-      } catch (error: any) {
-        console.error(
-          "Erro ao buscar saldo da Binance:",
-          error.response?.data || error.message,
-        );
-      } finally {
-        setIsLoading(false);
       }
-    }
 
-    fetchBinanceWallet();
-  }, []);
+      fetchBinanceWallet();
+    }, []),
+  );
 
   const goToCharts = (symbol: string) => {
     // Exemplo de como rotear dinamicamente dependendo da moeda clicada
@@ -215,9 +220,9 @@ export default function DashboardScreen() {
         />
 
         <View style={styles.actionsRow}>
-          <ActionButton icon="add" label="Receber" route="/receive" />
+          {/* <ActionButton icon="add" label="Receber" route="/receive" />
           <ActionButton icon="arrow-up" label="Enviar" route="/send" />
-          <ActionButton icon="swap-horizontal" label="Trocar" route="/swap" />
+          <ActionButton icon="swap-horizontal" label="Trocar" route="/swap" /> */}
           <ActionButton icon="card" label="Comprar" route="/buy" />
         </View>
 

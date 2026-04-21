@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.lumina"
+      "bundleIdentifier": "com.alexandrejunior.lumina",
+      "NSAppTransportSecurity": {
+        "NSAllowsArbitraryLoads": true
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.lumina"
+      "package": "com.alexandrejunior.lumina"
     },
     "web": {
       "output": "static",

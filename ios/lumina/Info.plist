@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>lumina</string>
-          <string>com.anonymous.lumina</string>
+          <string>com.alexandrejunior.lumina</string>
         </array>
       </dict>
     </array>
