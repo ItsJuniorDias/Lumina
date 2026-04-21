@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,6 +22,8 @@ export default function ConnectBinanceScreen() {
   const [secretKey, setSecretKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [isHelpModalVisible, setIsHelpModalVisible] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim() || !secretKey.trim()) {
@@ -152,12 +155,89 @@ export default function ConnectBinanceScreen() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.helpButton}>
+            <TouchableOpacity
+              onPress={() => setIsHelpModalVisible(true)} // <-- Altere aqui
+              style={styles.helpButton}
+            >
               <Text style={styles.helpText}>Como criar uma API Key?</Text>
             </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal de Ajuda */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isHelpModalVisible}
+        onRequestClose={() => setIsHelpModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Como criar sua API Key</Text>
+              <TouchableOpacity onPress={() => setIsHelpModalVisible(false)}>
+                <Ionicons
+                  name="close-circle"
+                  size={28}
+                  color="rgba(255,255,255,0.5)"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {[
+                {
+                  step: "1",
+                  text: "Faça login no site da Binance pelo computador.",
+                },
+                {
+                  step: "2",
+                  text: "Vá no ícone de perfil e clique em 'Gerenciamento de API'.",
+                },
+                {
+                  step: "3",
+                  text: "Clique em 'Criar API' e escolha 'Gerada pelo sistema'.",
+                },
+                {
+                  step: "4",
+                  text: "Dê um nome (ex: 'MeuAppCrypto') e faça a verificação de segurança.",
+                },
+                {
+                  step: "5",
+                  text: "IMPORTANTE: Ative as opções as permissões que de leitura, compra e venda, mas NUNCA ative saques ou transferências por segurança.",
+                },
+                {
+                  step: "6",
+                  text: "Copie a API Key e a Secret Key e cole-as aqui no app.",
+                },
+              ].map((item, index) => (
+                <View key={index} style={styles.stepRow}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{item.step}</Text>
+                  </View>
+                  <Text style={styles.stepText}>{item.text}</Text>
+                </View>
+              ))}
+
+              <View style={styles.warningBox}>
+                <Ionicons name="shield-checkmark" size={20} color="#F3BA2F" />
+                <Text style={styles.warningText}>
+                  Por segurança, nunca habilite 'Saques' ou 'Transferências'
+                  para chaves de terceiros.
+                </Text>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setIsHelpModalVisible(false)}
+            >
+              <Text style={styles.closeModalButtonText}>Entendi</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -277,6 +357,86 @@ const styles = StyleSheet.create({
   helpText: {
     color: "#F3BA2F",
     fontSize: 14,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#1A1A1A",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    maxHeight: "80%",
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingRight: 10,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#F3BA2F",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  stepNumberText: {
+    color: "#000",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  stepText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 20,
+  },
+  warningBox: {
+    flexDirection: "row",
+    backgroundColor: "rgba(243, 186, 47, 0.1)",
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 10,
+    marginBottom: 24,
+    alignItems: "center",
+  },
+  warningText: {
+    color: "#F3BA2F",
+    fontSize: 13,
+    marginLeft: 10,
+    flex: 1,
+    fontWeight: "500",
+  },
+  closeModalButton: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 16,
+    height: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  closeModalButtonText: {
+    color: "#fff",
+    fontSize: 16,
     fontWeight: "600",
   },
 });

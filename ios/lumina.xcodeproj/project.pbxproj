@@ -368,8 +368,8 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.alexandrejunior.lumina";
-				PRODUCT_NAME = "lumina";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexandrejunior.lumina;
+				PRODUCT_NAME = lumina;
 				SWIFT_OBJC_BRIDGING_HEADER = "lumina/lumina-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -402,8 +402,8 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.alexandrejunior.lumina";
-				PRODUCT_NAME = "lumina";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexandrejunior.lumina;
+				PRODUCT_NAME = lumina;
 				SWIFT_OBJC_BRIDGING_HEADER = "lumina/lumina-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

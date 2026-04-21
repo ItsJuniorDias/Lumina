@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -14,16 +14,6 @@ import { router, useFocusEffect } from "expo-router";
 import { api } from "@/server/api";
 import InteractiveBalanceCard from "@/components/card";
 
-// 1. Mapeamento para buscar preços no CoinGecko
-// A Binance retorna siglas (ETH, BTC). O CoinGecko exige IDs (ethereum, bitcoin).
-const COINGECKO_IDS: { [key: string]: string } = {
-  ETH: "ethereum",
-  BTC: "bitcoin",
-  USDT: "tether",
-  BNB: "binancecoin",
-};
-
-// 2. Mapeamento visual de Ícones e Cores
 const ASSET_THEME: {
   [key: string]: { icon: string; color: string; name: string };
 } = {
@@ -34,88 +24,46 @@ const ASSET_THEME: {
 };
 
 export default function DashboardScreen() {
-  // Agora guardamos uma lista de ativos, e não apenas o ETH
   const [assets, setAssets] = useState<any[]>([]);
-  const [totalBrlBalance, setTotalBrlBalance] = useState("0,00");
+  const [prices, setPrices] = useState<{ [key: string]: number }>({});
   const [isLoading, setIsLoading] = useState(true);
 
+  // 🔹 Buscar carteira
   useFocusEffect(
     useCallback(() => {
-      // Força o estado de loading ao voltar para a tela
       setIsLoading(true);
 
       async function fetchBinanceWallet() {
         try {
-          // Busca os saldos na sua nova rota do backend
           const response = await api.get("/wallet-binance");
           const carteiraBinance = response.data.carteira;
 
           if (carteiraBinance) {
             const symbols = Object.keys(carteiraBinance);
-            let rawAssets = [];
-            let totalBrlCalculated = 0;
 
-            // Filtra quais IDs precisamos buscar no CoinGecko
-            const idsToFetch = symbols
-              .map((sym) => COINGECKO_IDS[sym])
-              .filter(Boolean); // Remove os undefined
-
-            let prices: any = {};
-            if (idsToFetch.length > 0) {
-              const priceResponse = await fetch(
-                `https://api.coingecko.com/api/v3/simple/price?ids=${idsToFetch.join(
-                  ",",
-                )}&vs_currencies=brl`,
-              );
-              prices = await priceResponse.json();
-            }
-
-            // Processa cada moeda retornada pela Binance
-            for (const symbol of symbols) {
-              const available = parseFloat(carteiraBinance[symbol].available);
-              const onOrder = parseFloat(carteiraBinance[symbol].onOrder);
-              const totalAmount = available + onOrder;
-
-              const cgId = COINGECKO_IDS[symbol];
-              const priceInBrl = cgId && prices[cgId] ? prices[cgId].brl : 0;
-              const valueBrl = totalAmount * priceInBrl;
-
-              totalBrlCalculated += valueBrl;
-
-              // Busca tema visual, ou usa um padrão genérico
+            const rawAssets = symbols.map((symbol) => {
               const theme = ASSET_THEME[symbol] || {
                 icon: "coins",
                 color: "#888",
                 name: symbol,
               };
 
-              rawAssets.push({
+              return {
                 id: symbol,
-                symbol: symbol,
+                symbol,
                 name: theme.name,
-                amount: totalAmount.toFixed(4),
-                valueBrl: valueBrl.toLocaleString("pt-BR", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }),
+                amount:
+                  parseFloat(carteiraBinance[symbol].available) +
+                  parseFloat(carteiraBinance[symbol].onOrder),
                 icon: theme.icon,
                 color: theme.color,
-              });
-            }
+              };
+            });
 
             setAssets(rawAssets);
-            setTotalBrlBalance(
-              totalBrlCalculated.toLocaleString("pt-BR", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              }),
-            );
           }
         } catch (error: any) {
-          console.error(
-            "Erro ao buscar saldo da Binance:",
-            error.response?.data || error.message,
-          );
+          console.error("Erro ao buscar carteira:", error.message);
         } finally {
           setIsLoading(false);
         }
@@ -125,21 +73,93 @@ export default function DashboardScreen() {
     }, []),
   );
 
+  // 🔹 WebSocket tempo real (COM RECONEXÃO)
+  useEffect(() => {
+    if (assets.length === 0) return;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any;
+
+    const connect = () => {
+      const streams = assets
+        .map((a) => `${a.symbol.toLowerCase()}brl@ticker`)
+        .join("/");
+
+      ws = new WebSocket(
+        `wss://stream.binance.com:9443/stream?streams=${streams}`,
+      );
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (!msg?.data) return;
+
+        const symbol = msg.data.s.replace("BRL", "");
+        const lastPrice = parseFloat(msg.data.c);
+
+        setPrices((prev) => {
+          if (prev[symbol] === lastPrice) return prev;
+
+          return {
+            ...prev,
+            [symbol]: lastPrice,
+          };
+        });
+      };
+
+      ws.onclose = () => {
+        console.log("🔌 WS desconectado, reconectando...");
+        reconnectTimeout = setTimeout(connect, 2000);
+      };
+
+      ws.onerror = (e) => {
+        console.log("WebSocket erro:", e);
+        ws?.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      ws?.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [assets]);
+
+  // 🔹 Cálculo dinâmico (PERFORMANCE)
+  const { totalBrlBalance, displayAssets } = useMemo(() => {
+    let total = 0;
+
+    const formatted = assets.map((asset) => {
+      const price = prices[asset.symbol] ?? 0;
+
+      const valueBrlRaw = asset.amount * price;
+      total += valueBrlRaw;
+
+      return {
+        ...asset,
+        displayAmount: asset.amount.toFixed(4),
+        displayValueBrl: valueBrlRaw.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+      };
+    });
+
+    return {
+      totalBrlBalance: total.toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+      displayAssets: formatted,
+    };
+  }, [assets, prices]);
+
   const goToCharts = (symbol: string) => {
-    // Exemplo de como rotear dinamicamente dependendo da moeda clicada
     if (symbol === "ETH") router.push("/ethereum-charts");
-    // if (symbol === 'BTC') router.push("/bitcoin-charts");
   };
 
-  const ActionButton = ({
-    icon,
-    label,
-    route,
-  }: {
-    icon: any;
-    label: string;
-    route: any;
-  }) => (
+  const ActionButton = ({ icon, label, route }: any) => (
     <TouchableOpacity
       style={styles.actionItem}
       activeOpacity={0.7}
@@ -177,7 +197,9 @@ export default function DashboardScreen() {
       </View>
       <View style={styles.tokenRight}>
         <Text style={styles.tokenAmount}>{amount}</Text>
-        <Text style={styles.tokenValue}>R$ {value}</Text>
+        <Text style={[styles.tokenValue, { color: "#00ff88" }]}>
+          R$ {value}
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -202,10 +224,23 @@ export default function DashboardScreen() {
           <View>
             <Text style={styles.greeting}>Olá, Alexandre</Text>
             <View style={styles.networkBadge}>
-              <View style={styles.onlineDot} />
-              <Text style={styles.networkText}>Binance Connected</Text>
+              <View
+                style={[
+                  styles.onlineDot,
+                  {
+                    backgroundColor:
+                      Object.keys(prices).length > 0 ? "#00ff88" : "#F3BA2F",
+                  },
+                ]}
+              />
+              <Text style={styles.networkText}>
+                {Object.keys(prices).length > 0
+                  ? "Live Market"
+                  : "Conectando..."}
+              </Text>
             </View>
           </View>
+
           <TouchableOpacity
             onPress={() => router.push("/profile")}
             style={styles.profileCircle}
@@ -220,30 +255,28 @@ export default function DashboardScreen() {
         />
 
         <View style={styles.actionsRow}>
-          {/* <ActionButton icon="add" label="Receber" route="/receive" />
-          <ActionButton icon="arrow-up" label="Enviar" route="/send" />
-          <ActionButton icon="swap-horizontal" label="Trocar" route="/swap" /> */}
-          <ActionButton icon="card" label="Comprar" route="/buy" />
+          <ActionButton icon="arrow-up" label="Comprar" route="/buy" />
+          <ActionButton icon="arrow-down" label="Vender" route="/sell" />
         </View>
 
         <View style={styles.assetsSection}>
           <Text style={styles.sectionTitle}>Seus Ativos</Text>
+
           <View style={styles.assetsList}>
             {isLoading ? (
               <ActivityIndicator size="large" color="#fff" />
-            ) : assets.length === 0 ? (
+            ) : displayAssets.length === 0 ? (
               <Text style={{ color: "rgba(255,255,255,0.5)" }}>
                 Nenhum ativo encontrado.
               </Text>
             ) : (
-              // 🔥 O .map() gera a lista dinamicamente baseada na resposta da Binance
-              assets.map((asset) => (
+              displayAssets.map((asset) => (
                 <TokenItem
                   key={asset.id}
                   name={asset.name}
                   symbol={asset.symbol}
-                  amount={asset.amount}
-                  value={asset.valueBrl}
+                  amount={asset.displayAmount}
+                  value={asset.displayValueBrl}
                   iconColor={asset.color}
                   iconName={asset.icon}
                   onPress={() => goToCharts(asset.symbol)}
@@ -269,22 +302,31 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
   scrollContent: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 100 },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 30,
   },
+
   greeting: { color: "#fff", fontSize: 16, opacity: 0.6 },
-  networkBadge: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+
+  networkBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
+
   onlineDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#F3BA2F", // Mudei para amarelo Binance
     marginRight: 6,
   },
+
   networkText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
   profileCircle: {
     width: 44,
     height: 44,
@@ -293,43 +335,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardContainer: { marginBottom: 30, borderRadius: 28, overflow: "hidden" },
-  balanceCard: {
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  balanceLabel: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 15,
-    marginBottom: 8,
-  },
-  balanceValue: {
-    color: "#fff",
-    fontSize: 36,
-    fontWeight: "700",
-    marginBottom: 20,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 100,
-  },
-  walletAddress: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 13,
-    marginRight: 8,
-  },
+
   actionsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    // justifyContent: "space-between",
     marginBottom: 40,
+    gap: 24,
   },
+
   actionItem: { alignItems: "center" },
+
   actionIconCircle: {
     width: 56,
     height: 56,
@@ -340,21 +355,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
-  actionLabel: { color: "#fff", fontSize: 13, marginTop: 8, fontWeight: "500" },
+
+  actionLabel: {
+    color: "#fff",
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: "500",
+  },
+
   assetsSection: { flex: 1 },
+
   sectionTitle: {
     color: "#fff",
     fontSize: 20,
     fontWeight: "700",
     marginBottom: 20,
   },
+
   assetsList: { gap: 20 },
+
   tokenRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+
   tokenLeft: { flexDirection: "row", alignItems: "center" },
+
   tokenIcon: {
     width: 44,
     height: 44,
@@ -363,9 +390,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   tokenName: { color: "#fff", fontSize: 17, fontWeight: "600" },
+
   tokenSymbol: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
+
   tokenRight: { alignItems: "flex-end" },
+
   tokenAmount: { color: "#fff", fontSize: 17, fontWeight: "600" },
-  tokenValue: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
+
+  tokenValue: { fontSize: 14 },
 });

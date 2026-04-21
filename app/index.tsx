@@ -24,8 +24,7 @@ export default function OnboardingScreen() {
       const savedApiKey = await AsyncStorage.getItem("@binance_api_key");
       const savedSecretKey = await AsyncStorage.getItem("@binance_secret_key");
 
-      if (savedApiKey && savedSecretKey) {
-      }
+      console.log("Chaves carregadas:", { savedApiKey, savedSecretKey });
 
       return { apiKey: savedApiKey, secretKey: savedSecretKey };
     } catch (error) {
@@ -38,7 +37,9 @@ export default function OnboardingScreen() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // Redireciona para a tela onde o usuário vai inserir as API Keys
 
-    if (await loadKeys()) {
+    const keys = await loadKeys();
+
+    if (keys?.apiKey && keys?.secretKey) {
       router.replace("/(auth)/dashboard");
     } else {
       router.push("/connect-binance");

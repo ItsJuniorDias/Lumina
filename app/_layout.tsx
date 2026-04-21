@@ -35,7 +35,7 @@ export default function RootLayout() {
 
             {/* Novas Telas de Ação como Modais */}
             <Stack.Screen name="receive" options={{ presentation: "modal" }} />
-            <Stack.Screen name="send" options={{ presentation: "modal" }} />
+            <Stack.Screen name="sell" options={{ presentation: "modal" }} />
             <Stack.Screen name="swap" options={{ presentation: "modal" }} />
             <Stack.Screen name="buy" options={{ presentation: "modal" }} />
           </Stack>

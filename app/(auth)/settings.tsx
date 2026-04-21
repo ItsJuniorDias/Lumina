@@ -10,6 +10,7 @@ import {
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons"; // Biblioteca padrão do Expo
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function SettingsScreen() {
   const [isFaceIdEnabled, setIsFaceIdEnabled] = React.useState(true);
@@ -122,7 +123,15 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      <TouchableOpacity style={styles.logoutButton}>
+      <TouchableOpacity
+        onPress={async () => {
+          await AsyncStorage.removeItem("@binance_api_key");
+          await AsyncStorage.removeItem("@binance_secret_key");
+
+          router.replace("/");
+        }}
+        style={styles.logoutButton}
+      >
         <Text style={styles.logoutText}>Remover Carteira do Dispositivo</Text>
       </TouchableOpacity>
     </ScrollView>

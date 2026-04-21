@@ -30,6 +30,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+    "splash": null,
     "plugins": [
       "expo-router",
       [

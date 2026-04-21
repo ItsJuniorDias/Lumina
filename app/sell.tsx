@@ -1,0 +1,370 @@
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+  ActivityIndicator,
+} from "react-native";
+import { BlurView } from "expo-blur";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import * as Haptics from "expo-haptics";
+import LinearGradient from "react-native-linear-gradient";
+
+// --- CONFIGURAÇÃO DE DESIGN (CYBER DESIGN SYSTEM) ---
+const COLORS = {
+  CYAN: "#00FFFF",
+  MAGENTA: "#FF00FF",
+  BLACK: "#050509",
+  GREY: "#101018",
+  ERROR: "#FF4545",
+  TEXT_MUTED: "rgba(255, 255, 255, 0.4)",
+};
+
+// --- COMPONENTE DE BORDA NEON ---
+const CyberBorder = ({ children, color = COLORS.CYAN, style }: any) => (
+  <View style={[styles.borderWrapper, style]}>
+    <LinearGradient
+      colors={["transparent", color, "transparent"]}
+      start={{ x: 0, y: 0.5 }}
+      end={{ x: 1, y: 0.5 }}
+      style={styles.neonLine}
+    />
+    {children}
+    <LinearGradient
+      colors={["transparent", color, "transparent"]}
+      start={{ x: 0, y: 0.5 }}
+      end={{ x: 1, y: 0.5 }}
+      style={styles.neonLine}
+    />
+  </View>
+);
+
+export default function SellScreen() {
+  // 1. ESTADO E CONSTANTES
+  const BALANCE_ETH = 1.45;
+  const [amount, setAmount] = useState("");
+  const [ethRateBRL, setEthRateBRL] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // 2. LÓGICA DE VALIDAÇÃO
+  const numericAmount = parseFloat(amount.replace(",", ".")) || 0;
+  const isOverBalance = numericAmount > BALANCE_ETH;
+  const isInvalid = !amount || numericAmount <= 0 || isOverBalance;
+
+  // 3. BUSCA DE PREÇO (API REAL)
+  const fetchEthPrice = useCallback(async () => {
+    try {
+      const response = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=brl",
+      );
+      const data = await response.json();
+      if (data?.ethereum?.brl) {
+        setEthRateBRL(data.ethereum.brl);
+      }
+    } catch (error) {
+      console.log("Erro ao buscar cotação:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEthPrice();
+    const interval = setInterval(fetchEthPrice, 15000);
+    return () => clearInterval(interval);
+  }, [fetchEthPrice]);
+
+  // 4. HANDLERS
+  const handleMax = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAmount(BALANCE_ETH.toString());
+  };
+
+  const handleExecuteSell = async () => {
+    if (isInvalid) return;
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    console.log(`Liquidação executada: ${numericAmount} ETH`);
+    router.back();
+  };
+
+  // 5. CÁLCULO DE RECEBIMENTO
+  const receiveAmountBRL =
+    numericAmount > 0
+      ? (numericAmount * ethRateBRL).toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : "0,00";
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.inner}>
+          {/* HEADER */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.title}>LIQUIDAR ATIVO</Text>
+              <Text style={styles.subtitle}>PROTOCOLO DE VENDA V1.0</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="close" size={24} color={COLORS.CYAN} />
+            </TouchableOpacity>
+          </View>
+
+          {/* CONTEÚDO PRINCIPAL */}
+          <View style={styles.content}>
+            {/* ÁREA DE INPUT */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.sectionLabel}>QUANTIA PARA VENDER</Text>
+              <View style={styles.amountInputRow}>
+                <TextInput
+                  style={[
+                    styles.amountInput,
+                    isOverBalance && { color: COLORS.ERROR },
+                  ]}
+                  placeholder="0.00"
+                  placeholderTextColor="rgba(0,255,255,0.1)"
+                  keyboardType="decimal-pad"
+                  value={amount}
+                  onChangeText={setAmount}
+                  selectionColor={COLORS.CYAN}
+                />
+                <View
+                  style={[
+                    styles.assetBadge,
+                    isOverBalance && { borderColor: COLORS.ERROR },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.assetName,
+                      isOverBalance && { color: COLORS.ERROR },
+                    ]}
+                  >
+                    ETH
+                  </Text>
+                </View>
+              </View>
+
+              {/* SALDO DINÂMICO */}
+              <View style={styles.balanceRow}>
+                <MaterialCommunityIcons
+                  name="database-outline"
+                  size={14}
+                  color={isOverBalance ? COLORS.ERROR : COLORS.TEXT_MUTED}
+                />
+                <Text
+                  style={[
+                    styles.balanceText,
+                    isOverBalance && {
+                      color: COLORS.ERROR,
+                      fontWeight: "bold",
+                    },
+                  ]}
+                >
+                  {isOverBalance
+                    ? "SALDO INSUFICIENTE"
+                    : `DISPONÍVEL: ${BALANCE_ETH} ETH`}
+                </Text>
+                <TouchableOpacity style={styles.maxButton} onPress={handleMax}>
+                  <Text style={styles.maxButtonText}>MÁX</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* CARD DE CONVERSÃO (NEXUS) */}
+            <CyberBorder
+              color={isOverBalance ? COLORS.ERROR : COLORS.MAGENTA}
+              style={styles.nexusCardWrapper}
+            >
+              <View style={styles.nexusCard}>
+                <View style={styles.nexusRow}>
+                  <View style={styles.nexusModule}>
+                    <Text style={styles.nexusLabel}>ORIGEM</Text>
+                    <Text style={styles.nexusValue}>
+                      {numericAmount.toFixed(4)} ETH
+                    </Text>
+                  </View>
+
+                  <Ionicons
+                    name="arrow-forward"
+                    size={20}
+                    color={COLORS.CYAN}
+                    style={styles.nexusArrow}
+                  />
+
+                  <View
+                    style={[styles.nexusModule, { alignItems: "flex-end" }]}
+                  >
+                    <Text style={styles.nexusLabel}>DESTINO (BRL)</Text>
+                    <Text style={[styles.nexusValue, { color: COLORS.CYAN }]}>
+                      R$ {receiveAmountBRL}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.rateInfo}>
+                  {loading ? (
+                    <ActivityIndicator size="small" color={COLORS.CYAN} />
+                  ) : (
+                    <Text style={styles.rateText}>
+                      Taxa: 1 ETH = R$ {ethRateBRL.toLocaleString("pt-BR")}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </CyberBorder>
+          </View>
+
+          {/* FOOTER - BOTÃO DE AÇÃO */}
+          <View style={styles.footer}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              disabled={isInvalid}
+              onPress={handleExecuteSell}
+            >
+              <LinearGradient
+                colors={
+                  isInvalid
+                    ? [COLORS.GREY, COLORS.GREY]
+                    : [COLORS.MAGENTA, "#800080"]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.primaryButton}
+              >
+                <Text
+                  style={[
+                    styles.primaryButtonText,
+                    isInvalid && { opacity: 0.5 },
+                  ]}
+                >
+                  {isOverBalance ? "SALDO INSUFICIENTE" : "EXECUTAR LIQUIDAÇÃO"}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  );
+}
+
+// --- ESTILOS ---
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.BLACK },
+  inner: { flex: 1 },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderColor: "rgba(0,255,255,0.1)",
+  },
+  title: {
+    color: COLORS.CYAN,
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 2,
+    textShadowColor: COLORS.CYAN,
+    textShadowRadius: 10,
+  },
+  subtitle: { color: COLORS.TEXT_MUTED, fontSize: 10, marginTop: 4 },
+  closeButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,255,255,0.2)",
+  },
+
+  content: { flex: 1, paddingHorizontal: 24, paddingTop: 30 },
+
+  inputContainer: { marginBottom: 30 },
+  sectionLabel: {
+    color: COLORS.TEXT_MUTED,
+    fontSize: 12,
+    letterSpacing: 1.5,
+    marginBottom: 15,
+  },
+  amountInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  amountInput: { color: "#FFF", fontSize: 48, fontWeight: "800", flex: 1 },
+  assetBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: COLORS.GREY,
+    borderWidth: 1,
+    borderColor: COLORS.CYAN,
+    borderRadius: 4,
+  },
+  assetName: { color: COLORS.CYAN, fontWeight: "800", fontSize: 14 },
+
+  balanceRow: { flexDirection: "row", alignItems: "center", marginTop: 15 },
+  balanceText: { color: COLORS.TEXT_MUTED, fontSize: 13, marginLeft: 6 },
+  maxButton: {
+    marginLeft: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: COLORS.MAGENTA,
+    borderRadius: 4,
+  },
+  maxButtonText: { color: COLORS.MAGENTA, fontSize: 11, fontWeight: "bold" },
+
+  neonLine: { height: 1, width: "100%" },
+  nexusCardWrapper: { marginTop: 10 },
+  nexusCard: { backgroundColor: COLORS.GREY, padding: 20 },
+  nexusRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  nexusModule: { flex: 1 },
+  nexusLabel: { color: COLORS.TEXT_MUTED, fontSize: 10, marginBottom: 5 },
+  nexusValue: { color: "#FFF", fontSize: 18, fontWeight: "700" },
+  nexusArrow: { opacity: 0.5 },
+
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    marginVertical: 15,
+  },
+  rateInfo: { alignItems: "center" },
+  rateText: { color: COLORS.TEXT_MUTED, fontSize: 12 },
+
+  footer: { padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 24 },
+  primaryButton: {
+    height: 60,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 4,
+  },
+  primaryButtonText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5 },
+  borderWrapper: { width: "100%" },
+});

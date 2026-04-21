@@ -27,7 +27,7 @@ export default function EthereumChart() {
     return cleanupWs;
   }, []);
 
-  // 🔥 1. WEBSOCKET AGORA ESCUTA O PAR ETH/USDT (Dólar)
+  // WEBSOCKET: Escutando o par ETH/USDT (Dólar)
   const setupWebSocket = () => {
     const ws = new WebSocket(
       "wss://stream.binance.com:9443/ws/ethusdt@miniTicker",
@@ -48,6 +48,7 @@ export default function EthereumChart() {
     };
   };
 
+  // Garante que a tela não fique vazia enquanto o WS conecta
   useEffect(() => {
     if (chartData.length > 0) {
       const last = chartData[chartData.length - 1];
@@ -57,8 +58,6 @@ export default function EthereumChart() {
     }
   }, [chartData]);
 
-  // ⚠️ Importante: Garanta que sua API '/ethereum-chart?days=7'
-  // também esteja retornando o histórico em Dólar (USD) agora!
   const fetchCryptoData = async () => {
     try {
       const response = await api.get("/ethereum-chart?days=7");
@@ -67,7 +66,7 @@ export default function EthereumChart() {
       const formattedData = result.data
         .map((item: any) => ({
           timestamp: item.timestamp,
-          value: Number(item.price),
+          value: Number(item.price), // Certifique-se de que a API retorne em Dólar
         }))
         .sort((a: any, b: any) => a.timestamp - b.timestamp);
 
@@ -84,7 +83,7 @@ export default function EthereumChart() {
     setScrubbedPrice(val);
   };
 
-  // 🔥 Função auxiliar para formatar em Dólar
+  // Função auxiliar para formatar os campos de texto principais em Dólar
   const formatUSD = (value: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -135,7 +134,6 @@ export default function EthereumChart() {
 
           <View style={styles.pricesLayout}>
             <View style={styles.livePriceSection}>
-              {/* 🔥 2. EXIBINDO O PREÇO EM DÓLAR */}
               <Text style={styles.livePriceValue}>
                 {livePrice !== null ? formatUSD(livePrice) : "US$ ---"}
               </Text>
@@ -154,6 +152,7 @@ export default function EthereumChart() {
             </View>
           </View>
 
+          {/* Worklet Invisível para pescar o valor e enviar para a JS Thread */}
           <LineChart.PriceText
             style={{ position: "absolute", opacity: 0 }}
             format={({ value }) => {
@@ -179,10 +178,24 @@ export default function EthereumChart() {
                 setIsScrubbing(false);
               }}
             >
-              <LineChart.Tooltip
-                textStyle={styles.tooltipText}
-                style={styles.tooltipBox}
-              />
+              {/* 🔥 Tooltip agora agrupa o PriceText formatado via Worklet */}
+              <LineChart.Tooltip style={styles.tooltipBox}>
+                <LineChart.PriceText
+                  style={styles.tooltipText}
+                  format={({ value }) => {
+                    "worklet";
+                    const parsed = Number(value);
+                    if (
+                      value !== undefined &&
+                      value !== null &&
+                      !isNaN(parsed)
+                    ) {
+                      return `US$ ${parsed.toFixed(2)}`;
+                    }
+                    return "US$ ---";
+                  }}
+                />
+              </LineChart.Tooltip>
             </LineChart.CursorCrosshair>
           </LineChart>
         </View>
@@ -232,6 +245,6 @@ const styles = StyleSheet.create({
   scrubbedPriceValue: { fontSize: 24, fontWeight: "600", color: "#627EEA" },
   scrubLabel: { color: "#888", marginTop: 2, fontSize: 12 },
   chartWrapper: { flex: 1 },
-  tooltipText: { color: "#fff" },
+  tooltipText: { color: "#fff", fontWeight: "600" },
   tooltipBox: { backgroundColor: "#1C1C1E", padding: 8, borderRadius: 8 },
 });
