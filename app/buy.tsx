@@ -31,6 +31,7 @@ export default function BuyScreen() {
           "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
         );
         const data = await response.json();
+
         setEthPrice(data.ethereum.usd);
       } catch (error) {
         console.error("Erro ao buscar cotação:", error);
@@ -126,6 +127,7 @@ export default function BuyScreen() {
           <Text style={styles.title}>SWAP USDT // ETH</Text>
           <Text style={styles.subtitle}>Market Execution</Text>
         </View>
+
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.closeButton}

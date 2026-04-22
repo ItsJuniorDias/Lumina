@@ -11,6 +11,8 @@ import {
 import * as LocalAuthentication from "expo-local-authentication";
 import { ethers } from "ethers";
 import { API_BASE_URL } from "@/server/api";
+import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function WithdrawScreen() {
   const [amountBrl, setAmountBrl] = useState("");
@@ -138,8 +140,18 @@ export default function WithdrawScreen() {
     <View style={styles.container}>
       {/* Elementos Decorativos HUD (Heads-Up Display) */}
       <View style={styles.hudHeader}>
-        <Text style={styles.hudText}>SEC_LINK: ESTABELECIDO</Text>
-        <Text style={styles.hudText}>NODE_LATENCY: 12ms</Text>
+        <View style={{ gap: 8 }}>
+          <Text style={styles.hudText}>SEC_LINK: ESTABELECIDO</Text>
+          <Text style={styles.hudText}>NODE_LATENCY: 12ms</Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.closeButton}
+          disabled={isProcessing}
+        >
+          <Ionicons name="close" size={24} color="#888" />
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.title}>
@@ -199,8 +211,24 @@ const styles = StyleSheet.create({
     padding: 24,
     justifyContent: "center",
   },
+
+  closeButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: "#111",
+    padding: 8,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: "#222",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   hudHeader: {
     position: "absolute",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+
     top: 50,
     left: 24,
     borderLeftWidth: 2,

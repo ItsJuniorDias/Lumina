@@ -14,7 +14,6 @@ import { router, useFocusEffect } from "expo-router";
 import { api } from "@/server/api";
 
 import InteractiveBalanceCard from "@/components/card";
-import PortfolioCard from "@/components/portfolio-card";
 
 const ASSET_THEME: {
   [key: string]: { icon: string; color: string; name: string };

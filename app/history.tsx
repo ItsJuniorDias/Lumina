@@ -7,13 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { api } from "@/server/api";
 
-// Tipagem da nossa transação
+// Tipagem atualizada com os novos campos
 type Transaction = {
   id: string;
   type: "DEPOSIT" | "WITHDRAW" | "BUY" | "SELL";
@@ -21,19 +19,22 @@ type Transaction = {
   amount: string;
   date: string;
   status: string;
+  // Campos exclusivos de Ordens
+  executedQty?: string;
+  orderType?: string;
+  pair?: string;
+  price?: string;
 };
 
 export default function HistoryScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<"ALL" | "TRADES" | "TRANSFERS">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "ORDERS" | "TRANSFERS">("ALL");
 
   useEffect(() => {
     async function fetchHistory() {
       try {
-        // Substitua pela sua rota real no backend
         const response = await api.get("/history-binance");
-
         if (response.data.history) {
           setTransactions(response.data.history);
         }
@@ -47,89 +48,155 @@ export default function HistoryScreen() {
     fetchHistory();
   }, []);
 
-  // Configuração visual baseada no tipo de transação
-  const getTransactionVisuals = (type: string) => {
-    switch (type) {
-      case "DEPOSIT":
-        return {
-          icon: "arrow-down-outline",
-          color: "#26A17B",
-          label: "Depósito",
-        };
-      case "WITHDRAW":
-        return { icon: "arrow-up-outline", color: "#FF3B30", label: "Saque" };
-      case "BUY":
-        return {
-          icon: "add-circle-outline",
-          color: "#627EEA",
-          label: "Compra",
-        };
-      case "SELL":
-        return {
-          icon: "remove-circle-outline",
-          color: "#F7931A",
-          label: "Venda",
-        };
+  const getStatusDisplay = (status: string) => {
+    switch (status) {
+      case "COMPLETED":
+        return "Executado";
+      case "PENDING":
+        return "Aberto";
+      case "CANCELED":
+        return "Cancelado";
+      case "REJECTED":
+        return "Rejeitado";
       default:
-        return {
-          icon: "swap-horizontal",
-          color: "#888",
-          label: "Movimentação",
-        };
+        return status;
     }
   };
 
   const filteredTransactions = transactions.filter((tx) => {
     if (filter === "ALL") return true;
-    if (filter === "TRADES") return tx.type === "BUY" || tx.type === "SELL";
+    if (filter === "ORDERS") return tx.type === "BUY" || tx.type === "SELL";
     if (filter === "TRANSFERS")
       return tx.type === "DEPOSIT" || tx.type === "WITHDRAW";
     return true;
   });
 
-  const TransactionItem = ({ tx }: { tx: Transaction }) => {
-    const visual = getTransactionVisuals(tx.type);
+  const OrderItem = ({ tx }: { tx: Transaction }) => {
+    const isBuy = tx.type === "BUY";
+    const typeColor = isBuy ? "#0ECB81" : "#F6465D"; // Verde e Vermelho da Binance
+    const typeText = isBuy ? "Comprar" : "Vender";
+    const statusText = getStatusDisplay(tx.status);
+
+    // Tratamento de Data e Hora
     const dateObj = new Date(tx.date);
-    const formattedDate = dateObj.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-    });
+    const formattedDate = dateObj.toLocaleDateString("sv-SE");
     const formattedTime = dateObj.toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
     });
 
-    // Determina se o valor deve ter sinal de + ou -
-    const sign = tx.type === "DEPOSIT" || tx.type === "BUY" ? "+" : "-";
-    const amountColor =
-      tx.type === "DEPOSIT" || tx.type === "BUY" ? "#34C759" : "#fff";
+    // Formatação do Par (ex: ETHUSDT -> ETH/USDT)
+    const displayPair =
+      tx.pair && tx.asset
+        ? tx.pair.replace(tx.asset, `${tx.asset}/`)
+        : `${tx.asset}/USDT`;
+
+    // Formatação do Tipo de Ordem
+    const displayOrderType = tx.orderType === "MARKET" ? "Mercado" : "Limite";
+
+    // Formatação de Preço (ex: 2409.99 -> 2.409,99)
+    const formattedPrice =
+      tx.price && Number(tx.price) > 0
+        ? Number(tx.price).toLocaleString("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 8,
+          })
+        : "--";
 
     return (
-      <View style={styles.transactionRow}>
-        <View style={styles.transactionLeft}>
-          <BlurView intensity={20} tint="light" style={styles.iconCircle}>
-            <Ionicons
-              name={visual.icon as any}
-              size={20}
-              color={visual.color}
-            />
-          </BlurView>
+      <View style={styles.orderCard}>
+        {/* Cabeçalho do Card */}
+        <View style={styles.orderHeader}>
           <View>
-            <Text style={styles.transactionLabel}>
-              {visual.label} {tx.asset}
-            </Text>
-            <Text style={styles.transactionDate}>
-              {formattedDate} às {formattedTime}
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <Text style={styles.orderPair}>{displayPair}</Text>
+              <Ionicons name="share-social-outline" size={14} color="#848E9C" />
+            </View>
+            <Text style={[styles.orderType, { color: typeColor }]}>
+              {displayOrderType} / {typeText}
             </Text>
           </View>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={styles.orderDate}>
+              {formattedDate} {formattedTime}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color="#848E9C"
+              style={{ marginLeft: 4 }}
+            />
+          </View>
         </View>
-        <View style={styles.transactionRight}>
-          <Text style={[styles.transactionAmount, { color: amountColor }]}>
-            {sign}
-            {tx.amount}
+
+        {/* Linhas de Detalhes */}
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Valor</Text>
+          <Text style={styles.detailValue}>
+            {tx.executedQty} / {tx.amount}
           </Text>
-          <Text style={styles.transactionStatus}>
-            {tx.status === "COMPLETED" ? "Concluído" : "Pendente"}
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Preço</Text>
+          <Text style={styles.detailValue}>
+            {formattedPrice} /{" "}
+            {displayOrderType === "Mercado" ? "Market" : "Limit"}
+          </Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Status</Text>
+          <Text
+            style={[
+              styles.detailValue,
+              { color: tx.status === "COMPLETED" ? "#0ECB81" : "#EAECEF" },
+            ]}
+          >
+            {statusText}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const TransferItem = ({ tx }: { tx: Transaction }) => {
+    const isDeposit = tx.type === "DEPOSIT";
+    const dateObj = new Date(tx.date);
+    const formattedDate = `${dateObj.toLocaleDateString("sv-SE")} ${dateObj.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+
+    return (
+      <View style={styles.orderCard}>
+        <View style={styles.orderHeader}>
+          <View>
+            <Text style={styles.orderPair}>{tx.asset}</Text>
+            <Text
+              style={[
+                styles.orderType,
+                { color: isDeposit ? "#0ECB81" : "#F6465D" },
+              ]}
+            >
+              {isDeposit ? "Depósito" : "Saque"}
+            </Text>
+          </View>
+          <Text style={styles.orderDate}>{formattedDate}</Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Montante</Text>
+          <Text style={styles.detailValue}>{tx.amount}</Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Status</Text>
+          <Text
+            style={[
+              styles.detailValue,
+              { color: tx.status === "COMPLETED" ? "#0ECB81" : "#EAECEF" },
+            ]}
+          >
+            {getStatusDisplay(tx.status)}
           </Text>
         </View>
       </View>
@@ -138,70 +205,51 @@ export default function HistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#2A1B54", "#080414", "#000000"]}
-        locations={[0, 0.4, 1]}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
+      <View style={StyleSheet.absoluteFillObject} backgroundColor="#161A1E" />
 
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={24} color="#fff" />
+          <Ionicons name="arrow-back" size={24} color="#EAECEF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Histórico</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.headerTitle}>Histórico de ordens</Text>
+        <TouchableOpacity style={styles.backButton}>
+          <Ionicons name="download-outline" size={20} color="#EAECEF" />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterButton, filter === "ALL" && styles.filterActive]}
-          onPress={() => setFilter("ALL")}
-        >
+      <View style={styles.filterTabs}>
+        <TouchableOpacity onPress={() => setFilter("ALL")}>
           <Text
-            style={[
-              styles.filterText,
-              filter === "ALL" && styles.filterTextActive,
-            ]}
+            style={[styles.tabText, filter === "ALL" && styles.tabTextActive]}
           >
             Tudo
           </Text>
+          {filter === "ALL" && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            filter === "TRADES" && styles.filterActive,
-          ]}
-          onPress={() => setFilter("TRADES")}
-        >
+        <TouchableOpacity onPress={() => setFilter("ORDERS")}>
           <Text
             style={[
-              styles.filterText,
-              filter === "TRADES" && styles.filterTextActive,
+              styles.tabText,
+              filter === "ORDERS" && styles.tabTextActive,
             ]}
           >
-            Trades
+            Ordens
           </Text>
+          {filter === "ORDERS" && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            filter === "TRANSFERS" && styles.filterActive,
-          ]}
-          onPress={() => setFilter("TRANSFERS")}
-        >
+        <TouchableOpacity onPress={() => setFilter("TRANSFERS")}>
           <Text
             style={[
-              styles.filterText,
-              filter === "TRANSFERS" && styles.filterTextActive,
+              styles.tabText,
+              filter === "TRANSFERS" && styles.tabTextActive,
             ]}
           >
             Transferências
           </Text>
+          {filter === "TRANSFERS" && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
       </View>
 
@@ -212,24 +260,21 @@ export default function HistoryScreen() {
         {isLoading ? (
           <ActivityIndicator
             size="large"
-            color="#5856D6"
+            color="#627EEA"
             style={{ marginTop: 50 }}
           />
         ) : filteredTransactions.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons
-              name="receipt-outline"
-              size={48}
-              color="rgba(255,255,255,0.2)"
-            />
-            <Text style={styles.emptyText}>
-              Nenhuma movimentação encontrada.
-            </Text>
+            <Text style={styles.emptyText}>Sem registros.</Text>
           </View>
         ) : (
-          filteredTransactions.map((tx) => (
-            <TransactionItem key={tx.id} tx={tx} />
-          ))
+          filteredTransactions.map((tx) =>
+            tx.type === "BUY" || tx.type === "SELL" ? (
+              <OrderItem key={tx.id} tx={tx} />
+            ) : (
+              <TransferItem key={tx.id} tx={tx} />
+            ),
+          )
         )}
       </ScrollView>
     </View>
@@ -237,109 +282,102 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
+  container: { flex: 1, backgroundColor: "#161A1E" },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
   headerTitle: {
-    color: "#fff",
+    color: "#EAECEF",
     fontSize: 18,
     fontWeight: "600",
   },
-  filterContainer: {
+  filterTabs: {
     flexDirection: "row",
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    gap: 10,
-  },
-  filterButton: {
-    paddingVertical: 8,
     paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderBottomWidth: 1,
+    borderBottomColor: "#2B3139",
+    gap: 24,
+    marginBottom: 10,
   },
-  filterActive: {
-    backgroundColor: "rgba(88, 86, 214, 0.3)", // Tom sutil de roxo
-    borderColor: "#5856D6",
-  },
-  filterText: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 14,
+  tabText: {
+    color: "#848E9C",
+    fontSize: 15,
     fontWeight: "500",
+    paddingBottom: 12,
   },
-  filterTextActive: {
-    color: "#fff",
+  tabTextActive: {
+    color: "#EAECEF",
+    fontWeight: "600",
+  },
+  activeIndicator: {
+    height: 3,
+    backgroundColor: "#627EEA",
+    borderRadius: 2,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   scrollContent: {
-    paddingHorizontal: 20,
     paddingBottom: 100,
   },
-  transactionRow: {
+  orderCard: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#2B3139",
+  },
+  orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.05)",
+    alignItems: "flex-start",
+    marginBottom: 16,
   },
-  transactionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  iconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-    overflow: "hidden",
-  },
-  transactionLabel: {
-    color: "#fff",
+  orderPair: {
+    color: "#EAECEF",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "bold",
     marginBottom: 4,
   },
-  transactionDate: {
-    color: "rgba(255,255,255,0.4)",
+  orderType: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  orderDate: {
+    color: "#848E9C",
+    fontSize: 12,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  detailLabel: {
+    color: "#848E9C",
     fontSize: 13,
   },
-  transactionRight: {
-    alignItems: "flex-end",
-  },
-  transactionAmount: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  transactionStatus: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
+  detailValue: {
+    color: "#EAECEF",
+    fontSize: 13,
+    fontWeight: "500",
   },
   emptyState: {
     alignItems: "center",
-    justifyContent: "center",
     marginTop: 80,
   },
   emptyText: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 15,
-    marginTop: 16,
+    color: "#848E9C",
+    fontSize: 14,
   },
 });
