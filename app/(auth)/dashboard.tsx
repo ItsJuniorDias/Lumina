@@ -12,7 +12,9 @@ import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { api } from "@/server/api";
+
 import InteractiveBalanceCard from "@/components/card";
+import PortfolioCard from "@/components/portfolio-card";
 
 const ASSET_THEME: {
   [key: string]: { icon: string; color: string; name: string };
@@ -257,6 +259,11 @@ export default function DashboardScreen() {
         <View style={styles.actionsRow}>
           <ActionButton icon="arrow-up" label="Comprar" route="/buy" />
           <ActionButton icon="arrow-down" label="Vender" route="/sell" />
+          <ActionButton
+            icon="cash-outline"
+            label="Saque Pix"
+            route="/saque-pix"
+          />
         </View>
 
         <View style={styles.assetsSection}>

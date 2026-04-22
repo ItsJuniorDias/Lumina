@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE_URL = "https://olive-ants-write.loca.lt/api";
+export const API_BASE_URL = "https://blogclub.dev.br/api";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

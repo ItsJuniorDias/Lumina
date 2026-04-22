@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,112 +9,69 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { SymbolView } from "expo-symbols";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // <-- Import adicionado
-
-import { useSDK } from "@metamask/sdk-react-native";
 import { router } from "expo-router";
 
+// NOVO: Import do WalletConnect no lugar do MetaMask
+import { useWalletConnectModal } from "@walletconnect/modal-react-native";
+
 export default function ProfileScreen() {
-  const [walletAddress, setWalletAddress] = useState(null);
   const [userName, setUserName] = useState("Alexandre Junior");
-  const [isLoading, setIsLoading] = useState(false);
 
-  const { sdk } = useSDK();
-
-  // NOVO: useEffect para carregar o endereço salvo ao iniciar a tela
-  useEffect(() => {
-    const loadWalletData = async () => {
-      try {
-        const savedAddress = await AsyncStorage.getItem("@wallet_address");
-        if (savedAddress) {
-          setWalletAddress(savedAddress);
-        }
-      } catch (error) {
-        console.error("Erro ao carregar dados do AsyncStorage:", error);
-      }
-    };
-
-    loadWalletData();
-  }, []);
+  // NOVO: Hook do WalletConnect. Ele já retorna se está conectado e o endereço.
+  const { open, isConnected, address, provider } = useWalletConnectModal();
 
   const handleDisconnect = async () => {
     try {
-      // 1. Termina a sessão na SDK do MetaMask (Limpa o cache real)
-      if (sdk) {
-        await sdk.terminate();
+      // Desconecta o provedor do WalletConnect (limpa a sessão com a Binance Wallet)
+      if (provider) {
+        await provider.disconnect();
       }
-
-      // 2. Limpa o estado local
-      setWalletAddress(null);
-
-      // 3. Limpa o AsyncStorage
-      await AsyncStorage.removeItem("@wallet_address");
-
-      Alert.alert(
-        "Desconectado",
-        "Sua carteira foi desconectada com sucesso e o cache foi limpo.",
-      );
+      Alert.alert("Desconectado", "Sua carteira foi desconectada com sucesso.");
     } catch (error) {
-      console.error("Erro ao desconectar/limpar cache:", error);
+      console.error("Erro ao desconectar:", error);
       Alert.alert("Erro", "Não foi possível limpar a sessão completamente.");
     }
   };
 
-  // 1. Função para Conectar MetaMask (MetaMask SDK)
-  const handleConnectMetaMask = async () => {
+  // 1. Função para Conectar via WalletConnect (Binance Wallet)
+  const handleConnectWallet = async () => {
     try {
-      setIsLoading(true);
-
-      const accounts = await sdk?.connect();
-      console.log(accounts, "ACCOUNTS");
-
-      if (accounts && accounts.length > 0) {
-        const address = accounts[0];
-        setWalletAddress(address);
-
-        // NOVO: Salva o endereço no AsyncStorage
-        await AsyncStorage.setItem("@wallet_address", address);
-      }
-
-      setIsLoading(false);
+      // Abre o modal do WalletConnect.
+      // O usuário poderá escolher "Binance Web3 Wallet" ou escanear o QR Code no app da Binance.
+      await open();
     } catch (error) {
-      setIsLoading(false);
       console.error(error);
       Alert.alert(
         "Erro de Conexão",
-        "Não foi possível conectar à carteira. Verifique se o app do MetaMask está instalado.",
+        "Não foi possível abrir o modal de conexão.",
       );
     }
   };
 
-  // 2. Função para o fluxo do Stripe
-  const handleStripeConnect = async () => {
-    try {
-      Alert.alert("Stripe Connect", "Iniciando fluxo de compra/onboarding...");
-    } catch (error) {
-      Alert.alert("Erro", "Falha ao conectar com o provedor de pagamentos.");
-    }
+  // 2. Função para o fluxo do pagarme (compra de cripto)
+  const handleBuyCrypto = async () => {
+    router.push("/buy-crypto");
   };
 
-  // 3. Função para Gerenciar Ethereum
-  const handleManageEthereum = async () => {
-    if (!walletAddress) {
+  // 3. Função para Gerenciar
+  const handleManageCrypto = async () => {
+    if (!isConnected) {
       Alert.alert(
         "Carteira não conectada",
-        "Por favor, conecte seu MetaMask primeiro.",
+        "Por favor, conecte sua carteira primeiro.",
       );
       return;
     }
-    Alert.alert(
-      "Gerenciar",
-      "Navegando para detalhes da carteira e transferências ETH...",
-    );
+    Alert.alert("Gerenciar", "Navegando para detalhes da carteira...");
   };
 
   // Helper para formatar a visualização da wallet
-  const formatAddress = (address) => {
-    if (!address) return "Carteira não conectada";
-    return `${address.slice(0, 5)}...${address.slice(-4)}`;
+  const formatAddress = (walletAddress) => {
+    if (!walletAddress) return "Carteira não conectada";
+
+    console.log(walletAddress, "WALLET ADDRESS");
+
+    return `${walletAddress.slice(0, 5)}...${walletAddress.slice(-4)}`;
   };
 
   return (
@@ -132,41 +89,35 @@ export default function ProfileScreen() {
         <Text
           style={[
             styles.walletAddress,
-            !walletAddress && styles.walletAddressEmpty,
+            !isConnected && styles.walletAddressEmpty,
           ]}
         >
-          {formatAddress(walletAddress)}
+          {formatAddress(address)}
         </Text>
       </BlurView>
 
       {/* Seção de Cripto & Integrações */}
       <Text style={styles.sectionTitle}>Carteira & Pagamentos</Text>
       <View style={styles.actionGroup}>
-        <TouchableOpacity
-          style={styles.actionRow}
-          onPress={handleManageEthereum}
-        >
+        <TouchableOpacity style={styles.actionRow} onPress={handleManageCrypto}>
           <View style={styles.actionIcon}>
             <SymbolView
               name="bitcoinsign.circle.fill"
               size={26}
-              tintColor="#007AFF"
+              tintColor="#F3BA2F" // Cor amarela típica da Binance (opcional)
             />
           </View>
-          <Text style={styles.actionText}>Gerenciar Ethereum</Text>
+          <Text style={styles.actionText}>Gerenciar Cripto</Text>
           <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
         </TouchableOpacity>
 
         <View style={styles.divider} />
 
-        <TouchableOpacity
-          style={styles.actionRow}
-          onPress={handleStripeConnect}
-        >
+        <TouchableOpacity style={styles.actionRow} onPress={handleBuyCrypto}>
           <View style={styles.actionIcon}>
             <SymbolView name="creditcard.fill" size={26} tintColor="#34C759" />
           </View>
-          <Text style={styles.actionText}>Comprar Cripto (Stripe Connect)</Text>
+          <Text style={styles.actionText}>Comprar Cripto</Text>
           <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
         </TouchableOpacity>
 
@@ -175,19 +126,21 @@ export default function ProfileScreen() {
         {/* Altera a ação do botão dependendo se já está conectado ou não */}
         <TouchableOpacity
           style={styles.actionRow}
-          onPress={walletAddress ? handleDisconnect : handleConnectMetaMask}
+          onPress={isConnected ? handleDisconnect : handleConnectWallet}
         >
           <View style={styles.actionIcon}>
             <SymbolView
-              name={walletAddress ? "link.circle.fill" : "link.circle"}
+              name={isConnected ? "link.circle.fill" : "link.circle"}
               size={26}
-              tintColor={walletAddress ? "#FF3B30" : "#FF9500"}
+              tintColor={isConnected ? "#FF3B30" : "#F3BA2F"}
             />
           </View>
           <Text
-            style={[styles.actionText, walletAddress && { color: "#FF3B30" }]}
+            style={[styles.actionText, isConnected && { color: "#FF3B30" }]}
           >
-            {walletAddress ? "Desconectar MetaMask" : "Conexão MetaMask"}
+            {isConnected
+              ? "Desconectar Carteira"
+              : "Conectar Carteira (Binance)"}
           </Text>
           <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
         </TouchableOpacity>
@@ -219,7 +172,6 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  // ... (seus estilos originais continuam exatamente os mesmos aqui)
   container: {
     flex: 1,
     backgroundColor: "#F2F2F7",
