@@ -9,7 +9,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Image, // <-- Importação adicionada
+  Image,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { API_BASE_URL } from "@/server/api";
@@ -20,14 +20,19 @@ export default function BuyCryptoScreen() {
   const [loading, setLoading] = useState(false);
   const [pixData, setPixData] = useState(null);
 
+  // --- LÓGICA DA TAXA DE 2% ---
+  const parsedAmount = Number(amount.replace(",", "."));
+  const isValidAmount = !isNaN(parsedAmount) && parsedAmount > 0;
+  const feePercentage = 0.02; // 2%
+  const feeValue = isValidAmount ? parsedAmount * feePercentage : 0;
+  const totalAmount = isValidAmount ? parsedAmount + feeValue : 0;
+
   const fetchWalletAddress = async () => {
     return await AsyncStorage.getItem("@wallet_address");
   };
 
   const handleGeneratePix = async () => {
-    const parsedAmount = Number(amount.replace(",", "."));
-
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+    if (!isValidAmount) {
       Alert.alert("Erro", "Insira um valor válido em Reais (BRL).");
       return;
     }
@@ -41,9 +46,9 @@ export default function BuyCryptoScreen() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amountInBRL: parsedAmount,
+          amountInBRL: totalAmount, // Enviando o valor TOTAL com a taxa
           walletAddress: await fetchWalletAddress(),
-          pushToken: pushToken, // Mandando o token para o backend para notificações futuras
+          pushToken: pushToken,
         }),
       });
 
@@ -92,7 +97,6 @@ export default function BuyCryptoScreen() {
             </Text>
           </View>
 
-          {/* --- NOVO: Contêiner do QR Code --- */}
           {pixData.qrCodeBase64 && (
             <View style={styles.qrCodeContainer}>
               <Image
@@ -149,7 +153,7 @@ export default function BuyCryptoScreen() {
         </View>
 
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>VALOR DO DEPÓSITO (BRL)</Text>
+          <Text style={styles.label}>VALOR DA COMPRA (BRL)</Text>
           <View style={styles.inputWrapper}>
             <Text style={styles.currencySymbol}>R$</Text>
             <TextInput
@@ -163,6 +167,28 @@ export default function BuyCryptoScreen() {
               autoFocus
             />
           </View>
+
+          {/* --- NOVO: Detalhamento da Taxa --- */}
+          {isValidAmount && (
+            <View style={styles.feeContainer}>
+              <View style={styles.feeRow}>
+                <Text style={styles.feeLabel}>Subtotal:</Text>
+                <Text style={styles.feeValue}>
+                  R$ {parsedAmount.toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.feeRow}>
+                <Text style={styles.feeLabel}>Taxa de serviço (2%):</Text>
+                <Text style={styles.feeValue}>R$ {feeValue.toFixed(2)}</Text>
+              </View>
+              <View style={[styles.feeRow, styles.totalRow]}>
+                <Text style={styles.totalLabel}>Total a Pagar:</Text>
+                <Text style={styles.totalValue}>
+                  R$ {totalAmount.toFixed(2)}
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
 
         <TouchableOpacity
@@ -221,11 +247,50 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 56, fontWeight: "700", color: "#FFFFFF" },
 
-  // --- NOVOS ESTILOS DO QR CODE ---
-  qrCodeContainer: {
-    backgroundColor: "#FFFFFF", // Fundo branco obrigatório para o contraste do scanner
+  // --- NOVOS ESTILOS DA TAXA ---
+  feeContainer: {
+    marginTop: 24,
+    backgroundColor: "#111",
     padding: 16,
-    borderRadius: 24, // Design iOS
+    borderRadius: 12,
+  },
+  feeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  feeLabel: {
+    color: "#8E8E93",
+    fontSize: 14,
+  },
+  feeValue: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  totalRow: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+    marginBottom: 0,
+  },
+  totalLabel: {
+    color: "#00FFA3",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  totalValue: {
+    color: "#00FFA3",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  // -----------------------------
+
+  qrCodeContainer: {
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -235,8 +300,6 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
   },
-  // --------------------------------
-
   pixBox: {
     backgroundColor: "#111",
     padding: 20,

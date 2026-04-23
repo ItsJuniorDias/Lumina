@@ -37,16 +37,12 @@ export default function ConnectBinanceScreen() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // 1. Salvar as chaves no AsyncStorage
       await AsyncStorage.setItem("@binance_api_key", apiKey);
       await AsyncStorage.setItem("@binance_secret_key", secretKey);
 
-      // Simulando um delay de rede (2 segundos)
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // 2. Sucesso! Redireciona para o Dashboard
       router.replace("/(auth)/dashboard");
     } catch (error) {
       console.error("Erro ao salvar/conectar:", error);
@@ -71,7 +67,6 @@ export default function ConnectBinanceScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -91,12 +86,13 @@ export default function ConnectBinanceScreen() {
               />
             </View>
             <Text style={styles.title}>Conectar Binance</Text>
+            {/* Texto do subtítulo atualizado */}
             <Text style={styles.subtitle}>
               Crie uma API Key na sua conta da Binance com permissão de{" "}
               <Text style={{ fontWeight: "bold", color: "#fff" }}>
-                Apenas Leitura
+                Trade e Saque
               </Text>{" "}
-              e cole as chaves abaixo.
+              e cole as chaves abaixo para operar pela Lumina.
             </Text>
           </View>
 
@@ -156,7 +152,7 @@ export default function ConnectBinanceScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => setIsHelpModalVisible(true)} // <-- Altere aqui
+              onPress={() => setIsHelpModalVisible(true)}
               style={styles.helpButton}
             >
               <Text style={styles.helpText}>Como criar uma API Key?</Text>
@@ -186,6 +182,7 @@ export default function ConnectBinanceScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Passos atualizados para permitir Saque e configurar o IP */}
               {[
                 {
                   step: "1",
@@ -201,14 +198,18 @@ export default function ConnectBinanceScreen() {
                 },
                 {
                   step: "4",
-                  text: "Dê um nome (ex: 'MeuAppCrypto') e faça a verificação de segurança.",
+                  text: "Dê um nome (ex: 'Lumina App') e faça a verificação de segurança.",
                 },
                 {
                   step: "5",
-                  text: "IMPORTANTE: Ative as opções as permissões que de leitura, compra e venda, mas NUNCA ative saques ou transferências por segurança.",
+                  text: "Ative as opções: Habilitar Leitura, Ativar Trading Spot e Habilitar Saques.",
                 },
                 {
                   step: "6",
+                  text: "Em 'Restrições de acesso por IP', insira o IP seguro da Lumina: 134.209.186.252",
+                },
+                {
+                  step: "7",
                   text: "Copie a API Key e a Secret Key e cole-as aqui no app.",
                 },
               ].map((item, index) => (
@@ -220,11 +221,13 @@ export default function ConnectBinanceScreen() {
                 </View>
               ))}
 
+              {/* Aviso atualizado */}
               <View style={styles.warningBox}>
-                <Ionicons name="shield-checkmark" size={20} color="#F3BA2F" />
+                <Ionicons name="information-circle" size={20} color="#F3BA2F" />
                 <Text style={styles.warningText}>
-                  Por segurança, nunca habilite 'Saques' ou 'Transferências'
-                  para chaves de terceiros.
+                  A Binance só permite habilitar saques se você configurar o IP
+                  confiável no passo 6. Sem ele, a função de transferência para
+                  sua carteira não funcionará.
                 </Text>
               </View>
             </ScrollView>
@@ -242,6 +245,7 @@ export default function ConnectBinanceScreen() {
   );
 }
 
+// ... (seus estilos originais continuam idênticos aqui para baixo)
 const styles = StyleSheet.create({
   container: {
     flex: 1,

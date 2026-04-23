@@ -56,21 +56,20 @@ export default function WithdrawScreen() {
         return;
       }
 
-      console.log("[SISTEMA] Sincronizando cotação ETH/BRL atual...");
+      console.log("[SISTEMA] Sincronizando cotação USDT/BRL atual...");
 
-      // 3. Obter cotação atual do ETH em BRL (usando a API pública da Binance)
-      // Isso é necessário para saber quanto de ETH enviar baseado no input em BRL
+      // 3. Obter cotação atual do USDT em BRL (usando a API pública da Binance)
       const binanceRes = await fetch(
-        "https://api.binance.com/api/v3/ticker/price?symbol=ETHBRL",
+        "https://api.binance.com/api/v3/ticker/price?symbol=USDTBRL",
       );
       const binanceData = await binanceRes.json();
-      const currentEthPrice = parseFloat(binanceData.price);
+      const currentUsdtPrice = parseFloat(binanceData.price);
 
-      // Calcula o equivalente em ETH (com 18 casas decimais de precisão)
-      const ethAmountToSend = (numericAmount / currentEthPrice).toFixed(18);
+      // Calcula o equivalente em USDT (USDT na rede Ethereum usa 6 casas decimais)
+      const usdtAmountToSend = (numericAmount / currentUsdtPrice).toFixed(6);
 
       console.log(
-        `[SISTEMA] Câmbio: R$ ${numericAmount} equivale a ~${ethAmountToSend} ETH`,
+        `[SISTEMA] Câmbio: R$ ${numericAmount} equivale a ~${usdtAmountToSend} USDT`,
       );
 
       // 4. Conectar à Blockchain
@@ -81,25 +80,46 @@ export default function WithdrawScreen() {
       // ALERTA: Considere migrar esta chave privada para uma arquitetura segura no backend
       const userPrivateKey = process.env.EXPO_PUBLIC_API_SECRET;
 
+      if (!userPrivateKey) {
+        throw new Error("Chave privada não encontrada no ambiente.");
+      }
+
       const wallet = new ethers.Wallet(userPrivateKey, provider);
 
-      console.log("[SISTEMA] Inicializando uplink com a Hot Wallet...");
+      console.log(
+        "[SISTEMA] Inicializando uplink com contrato inteligente ERC-20...",
+      );
 
-      // 5. Envia os fundos (agora usando o valor calculado dinamicamente)
+      // 5. Instanciar o contrato do USDT e enviar os fundos
       const HOT_WALLET_ADDRESS = "0xa0860442611869213eEDcB1A8b855C644E094c71";
+      const USDT_CONTRACT_ADDRESS =
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Contrato oficial do USDT na Mainnet
 
-      const tx = await wallet.sendTransaction({
-        to: HOT_WALLET_ADDRESS,
-        value: ethers.parseEther(ethAmountToSend.toString()),
-      });
+      // ABI mínima do ERC-20 para realizar transferências
+      const erc20Abi = [
+        "function transfer(address to, uint256 amount) returns (bool)",
+      ];
 
-      // Aguarda a rede Ethereum confirmar
+      const usdtContract = new ethers.Contract(
+        USDT_CONTRACT_ADDRESS,
+        erc20Abi,
+        wallet,
+      );
+
+      // Converte a string decimal em BigInt, respeitando as 6 casas do USDT
+      const parsedAmount = ethers.parseUnits(usdtAmountToSend.toString(), 6);
+
+      // Executa a transação no contrato inteligente
+      const tx = await usdtContract.transfer(HOT_WALLET_ADDRESS, parsedAmount);
+
+      // Aguarda a rede Ethereum confirmar a transação do token
       await tx.wait();
 
-      console.log(`[SISTEMA] Transação validada na rede. TX_HASH: ${tx.hash}`);
+      console.log(
+        `[SISTEMA] Transação ERC-20 validada na rede. TX_HASH: ${tx.hash}`,
+      );
 
       // 6. Disparar Pix pelo Servidor
-      // Alinhado com o seu backend, que espera APENAS transactionHash e pixKey
       const response = await fetch(`${API_BASE_URL}/withdraw/pix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,7 +134,7 @@ export default function WithdrawScreen() {
       if (response.ok && serverData.success) {
         Alert.alert(
           "TRANSFERÊNCIA CONCLUÍDA",
-          `Valor: R$ ${serverData.amount}\nAtivos redirecionados para: ${pixKey}`,
+          `Valor: R$ ${serverData.amount || numericAmount.toFixed(2)}\nAtivos redirecionados para: ${pixKey}`,
         );
         // Limpa os campos após o sucesso
         setAmountBrl("");
