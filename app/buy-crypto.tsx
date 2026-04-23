@@ -34,6 +34,8 @@ export default function BuyCryptoScreen() {
 
     setLoading(true);
 
+    const pushToken = await AsyncStorage.getItem("@lumina_push_token");
+
     try {
       const response = await fetch(`${API_BASE_URL}/create-pix`, {
         method: "POST",
@@ -41,6 +43,7 @@ export default function BuyCryptoScreen() {
         body: JSON.stringify({
           amountInBRL: parsedAmount,
           walletAddress: await fetchWalletAddress(),
+          pushToken: pushToken, // Mandando o token para o backend para notificações futuras
         }),
       });
 

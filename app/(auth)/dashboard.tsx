@@ -13,7 +13,54 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { api } from "@/server/api";
 
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
+
 import InteractiveBalanceCard from "@/components/card";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// Configuração padrão estilo "Apple" (mostra a notificação mesmo com o app aberto)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+export async function registerForPushNotificationsAsync() {
+  let token;
+  if (Device.isDevice) {
+    const { status: existingStatus } =
+      await Notifications.getPermissionsAsync();
+
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== "granted") {
+      console.log("Falha ao obter permissão para push token!");
+      return;
+    }
+    // Pega o token
+    token = (await Notifications.getExpoPushTokenAsync()).data;
+
+    // 💾 Salva o token localmente no aparelho
+    await AsyncStorage.setItem("@lumina_push_token", token);
+    console.log("Token salvo no AsyncStorage:", token);
+
+    // Aqui você envia o `token` para sua API Node.js e salva atrelado ao usuário logado
+  } else {
+    console.log("Use um dispositivo físico para testar Push Notifications");
+  }
+
+  return token;
+}
 
 const ASSET_THEME: {
   [key: string]: { icon: string; color: string; name: string };
@@ -28,6 +75,10 @@ export default function DashboardScreen() {
   const [assets, setAssets] = useState<any[]>([]);
   const [prices, setPrices] = useState<{ [key: string]: number }>({});
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    registerForPushNotificationsAsync();
+  }, []);
 
   // 🔹 Buscar carteira
   useFocusEffect(

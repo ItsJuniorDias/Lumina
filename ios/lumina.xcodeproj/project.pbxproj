@@ -22,7 +22,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = lumina/Info.plist; sourceTree = "<group>"; };
 		2385CD11BE18C8B1CF5B7037 /* libPods-lumina.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-lumina.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3540A7817FD7CEA215EAAB61 /* Pods-lumina.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-lumina.debug.xcconfig"; path = "Target Support Files/Pods-lumina/Pods-lumina.debug.xcconfig"; sourceTree = "<group>"; };
-		5836CE38579AB9429F6A31A3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = lumina/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		5836CE38579AB9429F6A31A3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = lumina/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5C545FE640878247E09D4B58 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-lumina/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = lumina/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -50,7 +50,6 @@
 				3540A7817FD7CEA215EAAB61 /* Pods-lumina.debug.xcconfig */,
 				D0A47ECAEB3B72EA40BDFB4D /* Pods-lumina.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -166,7 +165,6 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
-						DevelopmentTeam = 9337P26ZJ6;
 						LastSwiftMigration = 1250;
 						ProvisioningStyle = Automatic;
 					};
