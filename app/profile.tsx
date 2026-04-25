@@ -15,7 +15,7 @@ import { router } from "expo-router";
 import { useWalletConnectModal } from "@walletconnect/modal-react-native";
 
 export default function ProfileScreen() {
-  const [userName, setUserName] = useState("Alexandre Junior");
+  const [userName, setUserName] = useState("Usuário Anônimo");
 
   // NOVO: Hook do WalletConnect. Ele já retorna se está conectado e o endereço.
   const { open, isConnected, address, provider } = useWalletConnectModal();

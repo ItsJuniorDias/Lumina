@@ -40,6 +40,7 @@ export default function RootLayout() {
           <Stack.Screen name="history" options={{ animation: "fade" }} />
           <Stack.Screen name="buy-crypto" options={{ animation: "fade" }} />
           <Stack.Screen name="saque-pix" options={{ presentation: "modal" }} />
+          <Stack.Screen name="mentor" options={{ animation: "fade" }} />
 
           {/* Novas Telas de Ação como Modais */}
           <Stack.Screen name="receive" options={{ presentation: "modal" }} />
