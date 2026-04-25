@@ -1,17 +1,11 @@
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
+  Animated,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import {
@@ -20,15 +14,15 @@ import {
   MaterialCommunityIcons,
 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect } from "expo-router";
+import { router } from "expo-router";
 import { api } from "@/server/api";
+import { useQuery } from "@tanstack/react-query";
 
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 
 import InteractiveBalanceCard from "@/components/card";
 import MarketInsightCard from "@/components/MarketInsightCard";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -72,16 +66,63 @@ const ASSET_THEME: {
   BNB: { icon: "coins", color: "#F3BA2F", name: "Binance Coin" },
 };
 
+// 👇 Componente de Skeleton Animado
+const SkeletonTokenItem = () => {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={[styles.tokenRow, { opacity }]}>
+      <View style={styles.tokenLeft}>
+        <View
+          style={[
+            styles.tokenIcon,
+            { backgroundColor: "rgba(255,255,255,0.1)" },
+          ]}
+        />
+        <View>
+          <View
+            style={[
+              styles.skeletonBlock,
+              { width: 80, height: 16, marginBottom: 6 },
+            ]}
+          />
+          <View style={[styles.skeletonBlock, { width: 40, height: 12 }]} />
+        </View>
+      </View>
+      <View style={styles.tokenRight}>
+        <View
+          style={[
+            styles.skeletonBlock,
+            { width: 60, height: 16, marginBottom: 6 },
+          ]}
+        />
+        <View style={[styles.skeletonBlock, { width: 50, height: 12 }]} />
+      </View>
+    </Animated.View>
+  );
+};
+
 export default function DashboardScreen() {
-  const [assets, setAssets] = useState<any[]>([]);
   const [prices, setPrices] = useState<{ [key: string]: number }>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [gasPrice, setGasPrice] = useState("N/A");
 
-  // 👇 1. Ref para rastrear as mudanças insanas do websocket silenciosamente
   const latestData = useRef({ displayAssets: [] as any[], gasPrice: "N/A" });
-
-  // 👇 2. State para guardar a "foto" da carteira a cada 10 segundos
   const [aiSnapshot, setAiSnapshot] = useState<{
     topCoins: any[];
     gasPrice: string;
@@ -91,44 +132,51 @@ export default function DashboardScreen() {
     registerForPushNotificationsAsync();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      setIsLoading(true);
-      async function fetchBinanceWallet() {
-        try {
-          const response = await api.get("/wallet-binance");
-          const carteiraBinance = response.data.carteira;
+  const { data: assets = [], isLoading: isLoadingAssets } = useQuery({
+    queryKey: ["wallet-binance"],
+    queryFn: async () => {
+      const response = await api.get("/wallet-binance");
+      const carteiraBinance = response.data.carteira;
 
-          if (carteiraBinance) {
-            const symbols = Object.keys(carteiraBinance);
-            const rawAssets = symbols.map((symbol) => {
-              const theme = ASSET_THEME[symbol] || {
-                icon: "coins",
-                color: "#888",
-                name: symbol,
-              };
-              return {
-                id: symbol,
-                symbol,
-                name: theme.name,
-                amount:
-                  parseFloat(carteiraBinance[symbol].available) +
-                  parseFloat(carteiraBinance[symbol].onOrder),
-                icon: theme.icon,
-                color: theme.color,
-              };
-            });
-            setAssets(rawAssets);
-          }
-        } catch (error: any) {
-          console.error("Erro ao buscar carteira:", error.message);
-        } finally {
-          setIsLoading(false);
-        }
+      if (!carteiraBinance) return [];
+
+      const symbols = Object.keys(carteiraBinance);
+      return symbols.map((symbol) => {
+        const theme = ASSET_THEME[symbol] || {
+          icon: "coins",
+          color: "#888",
+          name: symbol,
+        };
+        return {
+          id: symbol,
+          symbol,
+          name: theme.name,
+          amount:
+            parseFloat(carteiraBinance[symbol].available) +
+            parseFloat(carteiraBinance[symbol].onOrder),
+          icon: theme.icon,
+          color: theme.color,
+        };
+      });
+    },
+  });
+
+  const { data: gasPrice = "N/A" } = useQuery({
+    queryKey: ["gas-price"],
+    queryFn: async () => {
+      const apiKey = "QHACMA9TI95HFJ7V69FV43ZP7MKFPRXMGJ";
+      const response = await fetch(
+        `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${apiKey}`,
+      );
+      const data = await response.json();
+
+      if (data.status === "1") {
+        return data.result.ProposeGasPrice;
       }
-      fetchBinanceWallet();
-    }, []),
-  );
+      throw new Error(`Erro do Etherscan: ${data.result}`);
+    },
+    refetchInterval: 30000,
+  });
 
   useEffect(() => {
     if (assets.length === 0) return;
@@ -161,7 +209,7 @@ export default function DashboardScreen() {
         reconnectTimeout = setTimeout(connect, 2000);
       };
 
-      ws.onerror = (e) => ws?.close();
+      ws.onerror = () => ws?.close();
     };
 
     connect();
@@ -170,6 +218,16 @@ export default function DashboardScreen() {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, [assets]);
+
+  // 👇 Regra mais flexível: Sai do loading assim que a API responder E o WebSocket der o primeiro sinal de vida
+  const isCalculatingBrl = useMemo(() => {
+    if (isLoadingAssets) return true; // Espera a API da Binance
+    if (assets.length === 0) return false; // Carteira vazia, mostra a tela direto
+
+    // Se ainda não recebemos NENHUM preço do WebSocket, continua no loading.
+    // Assim que a primeira moeda piscar, a interface é liberada.
+    return Object.keys(prices).length === 0;
+  }, [isLoadingAssets, assets, prices]);
 
   const { totalBrlBalance, displayAssets } = useMemo(() => {
     let total = 0;
@@ -197,12 +255,10 @@ export default function DashboardScreen() {
     };
   }, [assets, prices]);
 
-  // 👇 3. Atualiza os dados de referência (Ref) imediatamente, sem recarregar tela
   useEffect(() => {
     latestData.current = { displayAssets, gasPrice };
   }, [displayAssets, gasPrice]);
 
-  // 👇 4. Tira a foto a cada 10 segundos e envia para a IA
   useEffect(() => {
     if (assets.length === 0) return;
 
@@ -221,9 +277,7 @@ export default function DashboardScreen() {
       setAiSnapshot({ topCoins: topCoinsData, gasPrice: currentGas });
     };
 
-    updateSnapshot(); // Executa logo de cara
-
-    // Intervalo setado para 30000ms (30 segundos)
+    updateSnapshot();
     const interval = setInterval(updateSnapshot, 30000);
 
     return () => clearInterval(interval);
@@ -232,35 +286,6 @@ export default function DashboardScreen() {
   const goToCharts = (symbol: string) => {
     if (symbol === "ETH") router.push("/ethereum-charts");
   };
-
-  const fetchGasPrice = async () => {
-    try {
-      const apiKey = "QHACMA9TI95HFJ7V69FV43ZP7MKFPRXMGJ";
-
-      const response = await fetch(
-        `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${apiKey}`,
-      );
-
-      const data = await response.json();
-
-      if (data.status === "1") {
-        const gasPrice = data.result.ProposeGasPrice;
-        console.log("Preço do Gas fetched (Gwei):", gasPrice);
-
-        setGasPrice(gasPrice);
-      } else {
-        console.error("Resposta de erro do Etherscan:", data);
-        throw new Error(`Erro do Etherscan: ${data.result}`);
-      }
-    } catch (error) {
-      console.error("Erro ao buscar o preço do gas:", error);
-      setGasPrice("N/A");
-    }
-  };
-
-  useEffect(() => {
-    fetchGasPrice();
-  }, []);
 
   const ActionButton = ({ icon, label, route, CustomIcon }: any) => (
     <TouchableOpacity
@@ -335,14 +360,16 @@ export default function DashboardScreen() {
                   styles.onlineDot,
                   {
                     backgroundColor:
-                      Object.keys(prices).length > 0 ? "#00ff88" : "#F3BA2F",
+                      !isCalculatingBrl && Object.keys(prices).length > 0
+                        ? "#00ff88"
+                        : "#F3BA2F",
                   },
                 ]}
               />
               <Text style={styles.networkText}>
-                {Object.keys(prices).length > 0
+                {!isCalculatingBrl && Object.keys(prices).length > 0
                   ? "Live Market"
-                  : "Conectando..."}
+                  : "Sincronizando Preços..."}
               </Text>
             </View>
           </View>
@@ -354,9 +381,10 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Passamos isCalculatingBrl no lugar de isLoadingAssets */}
         <InteractiveBalanceCard
           balance={totalBrlBalance}
-          isLoading={isLoading}
+          isLoading={isCalculatingBrl}
         />
 
         <View style={styles.actionsRow}>
@@ -380,8 +408,7 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* 👇 O componente IA agora só recebe novos dados a cada 10 segundos */}
-        {!isLoading && aiSnapshot && (
+        {!isCalculatingBrl && aiSnapshot && (
           <View style={{ marginBottom: 30 }}>
             <MarketInsightCard
               topCoins={aiSnapshot.topCoins}
@@ -393,8 +420,12 @@ export default function DashboardScreen() {
         <View style={styles.assetsSection}>
           <Text style={styles.sectionTitle}>Seus Ativos</Text>
           <View style={styles.assetsList}>
-            {isLoading ? (
-              <ActivityIndicator size="large" color="#fff" />
+            {isCalculatingBrl ? (
+              <>
+                <SkeletonTokenItem />
+                <SkeletonTokenItem />
+                <SkeletonTokenItem />
+              </>
             ) : displayAssets.length === 0 ? (
               <Text style={{ color: "rgba(255,255,255,0.5)" }}>
                 Nenhum ativo encontrado.
@@ -501,4 +532,5 @@ const styles = StyleSheet.create({
   tokenRight: { alignItems: "flex-end" },
   tokenAmount: { color: "#fff", fontSize: 17, fontWeight: "600" },
   tokenValue: { fontSize: 14 },
+  skeletonBlock: { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 6 }, // Estilo pro skeleton
 });

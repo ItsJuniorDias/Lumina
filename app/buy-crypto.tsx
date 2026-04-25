@@ -14,11 +14,13 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { API_BASE_URL } from "@/server/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export default function BuyCryptoScreen() {
+  const queryClient = useQueryClient();
+
   const [amount, setAmount] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [pixData, setPixData] = useState(null);
+  const [pixData, setPixData] = useState<any>(null);
 
   // --- LÓGICA DA TAXA DE 2% ---
   const parsedAmount = Number(amount.replace(",", "."));
@@ -27,52 +29,53 @@ export default function BuyCryptoScreen() {
   const feeValue = isValidAmount ? parsedAmount * feePercentage : 0;
   const totalAmount = isValidAmount ? parsedAmount + feeValue : 0;
 
-  const fetchWalletAddress = async () => {
-    return await AsyncStorage.getItem("@wallet_address");
-  };
+  // 👇 Mutação do TanStack para gerar o Pix
+  const pixMutation = useMutation({
+    mutationFn: async () => {
+      const walletAddress = await AsyncStorage.getItem("@wallet_address");
+      const pushToken = await AsyncStorage.getItem("@lumina_push_token");
 
-  const handleGeneratePix = async () => {
-    if (!isValidAmount) {
-      Alert.alert("Erro", "Insira um valor válido em Reais (BRL).");
-      return;
-    }
-
-    setLoading(true);
-
-    const pushToken = await AsyncStorage.getItem("@lumina_push_token");
-
-    try {
       const response = await fetch(`${API_BASE_URL}/create-pix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amountInBRL: totalAmount, // Enviando o valor TOTAL com a taxa
-          walletAddress: await fetchWalletAddress(),
+          amountInBRL: totalAmount,
+          walletAddress: walletAddress,
           pushToken: pushToken,
         }),
       });
 
       const data = await response.json();
-      console.log("Resposta do servidor:", data);
 
-      if (data.success) {
-        if (data.pixCopiaECola) {
-          setPixData(data);
-        } else {
-          Alert.alert(
-            "Aviso",
-            `Pedido ${data.orderId} gerado, mas o servidor não retornou o código Pix.`,
-          );
-        }
-      } else {
-        Alert.alert("Erro", "Não foi possível gerar a cobrança.");
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Não foi possível gerar a cobrança.");
       }
-    } catch (error) {
+
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.pixCopiaECola) {
+        setPixData(data);
+      } else {
+        Alert.alert(
+          "Aviso",
+          `Pedido ${data.orderId} gerado, mas o servidor não retornou o código Pix.`,
+        );
+      }
+    },
+    onError: (error: any) => {
       console.error("Erro na requisição:", error);
-      Alert.alert("Erro de Conexão", "Servidor indisponível.");
-    } finally {
-      setLoading(false);
+      Alert.alert("Erro de Conexão", error.message || "Servidor indisponível.");
+    },
+  });
+
+  const handleGeneratePix = () => {
+    if (!isValidAmount) {
+      Alert.alert("Erro", "Insira um valor válido em Reais (BRL).");
+      return;
     }
+    // Dispara a mutação
+    pixMutation.mutate();
   };
 
   const copyToClipboard = async () => {
@@ -83,6 +86,12 @@ export default function BuyCryptoScreen() {
         "Código Pix copiado para a área de transferência.",
       );
     }
+  };
+
+  const handleClosePix = () => {
+    // 👇 Invalida o cache da carteira para garantir que o Dashboard puxe o saldo novo
+    queryClient.invalidateQueries({ queryKey: ["wallet-binance"] });
+    setPixData(null);
   };
 
   if (pixData) {
@@ -124,7 +133,7 @@ export default function BuyCryptoScreen() {
 
             <TouchableOpacity
               style={[styles.actionButton, styles.secondaryButton]}
-              onPress={() => setPixData(null)}
+              onPress={handleClosePix}
             >
               <Text
                 style={[styles.actionButtonText, styles.secondaryButtonText]}
@@ -163,12 +172,11 @@ export default function BuyCryptoScreen() {
               keyboardType="decimal-pad"
               value={amount}
               onChangeText={setAmount}
-              editable={!loading}
+              editable={!pixMutation.isPending}
               autoFocus
             />
           </View>
 
-          {/* --- NOVO: Detalhamento da Taxa --- */}
           {isValidAmount && (
             <View style={styles.feeContainer}>
               <View style={styles.feeRow}>
@@ -192,11 +200,14 @@ export default function BuyCryptoScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.actionButton, loading && styles.actionButtonDisabled]}
+          style={[
+            styles.actionButton,
+            pixMutation.isPending && styles.actionButtonDisabled,
+          ]}
           onPress={handleGeneratePix}
-          disabled={loading}
+          disabled={pixMutation.isPending}
         >
-          {loading ? (
+          {pixMutation.isPending ? (
             <ActivityIndicator color="#000000" />
           ) : (
             <Text style={styles.actionButtonText}>GERAR PIX</Text>
@@ -247,7 +258,6 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontSize: 56, fontWeight: "700", color: "#FFFFFF" },
 
-  // --- NOVOS ESTILOS DA TAXA ---
   feeContainer: {
     marginTop: 24,
     backgroundColor: "#111",
@@ -285,7 +295,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
   },
-  // -----------------------------
 
   qrCodeContainer: {
     backgroundColor: "#FFFFFF",

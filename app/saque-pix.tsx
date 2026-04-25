@@ -13,16 +13,127 @@ import { ethers } from "ethers";
 import { API_BASE_URL } from "@/server/api";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export default function WithdrawScreen() {
+  const queryClient = useQueryClient();
+
   const [amountBrl, setAmountBrl] = useState("");
   const [pixKey, setPixKey] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
 
-  console.log(process.env.EXPO_PUBLIC_API_SECRET);
+  const withdrawMutation = useMutation({
+    mutationFn: async (numericAmount: number) => {
+      // 1. Autorização Biométrica
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: "AUTORIZAÇÃO BIOMÉTRICA REQUERIDA",
+        fallbackLabel: "INSERIR CÓDIGO DE ACESSO",
+      });
 
-  async function handlePixWithdrawal() {
-    // 1. Validação inicial dos parâmetros
+      if (!authResult.success) {
+        throw new Error(
+          "Acesso negado. A assinatura biométrica é obrigatória para a extração de fundos.",
+        );
+      }
+
+      console.log("[SISTEMA] Sincronizando cotação USDT/BRL atual...");
+
+      // 2. Obter cotação atual do USDT em BRL (usando a API pública da Binance)
+      const binanceRes = await fetch(
+        "https://api.binance.com/api/v3/ticker/price?symbol=USDTBRL",
+      );
+      const binanceData = await binanceRes.json();
+      const currentUsdtPrice = parseFloat(binanceData.price);
+
+      const usdtAmountToSend = (numericAmount / currentUsdtPrice).toFixed(6);
+
+      console.log(
+        `[SISTEMA] Câmbio: R$ ${numericAmount} equivale a ~${usdtAmountToSend} USDT`,
+      );
+
+      // 3. Conectar à Blockchain
+      const provider = new ethers.JsonRpcProvider(
+        "https://eth-mainnet.g.alchemy.com/v2/T3-iK_3wijCdj7_O79nij",
+      );
+
+      const userPrivateKey = process.env.EXPO_PUBLIC_API_SECRET;
+
+      if (!userPrivateKey) {
+        throw new Error("Chave privada não encontrada no ambiente.");
+      }
+
+      const wallet = new ethers.Wallet(userPrivateKey, provider);
+
+      console.log(
+        "[SISTEMA] Inicializando uplink com contrato inteligente ERC-20...",
+      );
+
+      // 4. Instanciar o contrato do USDT e enviar os fundos
+      const HOT_WALLET_ADDRESS = "0xa0860442611869213eEDcB1A8b855C644E094c71";
+      const USDT_CONTRACT_ADDRESS =
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Contrato oficial do USDT na Mainnet
+
+      const erc20Abi = [
+        "function transfer(address to, uint256 amount) returns (bool)",
+      ];
+
+      const usdtContract = new ethers.Contract(
+        USDT_CONTRACT_ADDRESS,
+        erc20Abi,
+        wallet,
+      );
+
+      const parsedAmount = ethers.parseUnits(usdtAmountToSend.toString(), 6);
+      const tx = await usdtContract.transfer(HOT_WALLET_ADDRESS, parsedAmount);
+
+      await tx.wait();
+
+      console.log(
+        `[SISTEMA] Transação ERC-20 validada na rede. TX_HASH: ${tx.hash}`,
+      );
+
+      // 5. Disparar Pix pelo Servidor
+      const response = await fetch(`${API_BASE_URL}/withdraw/pix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactionHash: tx.hash,
+          pixKey: pixKey,
+        }),
+      });
+
+      const serverData = await response.json();
+
+      if (!response.ok || !serverData.success) {
+        throw new Error(serverData.error || "Falha desconhecida no servidor.");
+      }
+
+      return { serverData, numericAmount };
+    },
+    onSuccess: ({ serverData, numericAmount }) => {
+      // 👇 Invalida o cache para a Dashboard ser atualizada no background
+      queryClient.invalidateQueries({ queryKey: ["wallet-binance"] });
+
+      Alert.alert(
+        "TRANSFERÊNCIA CONCLUÍDA",
+        `Valor: R$ ${
+          serverData.amount || numericAmount.toFixed(2)
+        }\nAtivos redirecionados para: ${pixKey}`,
+      );
+
+      setAmountBrl("");
+      setPixKey("");
+    },
+    onError: (error: any) => {
+      console.error("[ERRO_CRÍTICO] Falha no nó de processamento", error);
+      Alert.alert(
+        "FALHA NO SISTEMA",
+        error.message ||
+          "Anomalia detectada ao processar o contrato inteligente ou comunicar com o servidor.",
+      );
+    },
+  });
+
+  function handlePixWithdrawal() {
     const numericAmount = parseFloat(amountBrl.replace(",", "."));
 
     if (!numericAmount || numericAmount <= 0) {
@@ -38,127 +149,12 @@ export default function WithdrawScreen() {
       return;
     }
 
-    setIsProcessing(true);
-
-    try {
-      // 2. Autorização Biométrica
-      const authResult = await LocalAuthentication.authenticateAsync({
-        promptMessage: "AUTORIZAÇÃO BIOMÉTRICA REQUERIDA",
-        fallbackLabel: "INSERIR CÓDIGO DE ACESSO",
-      });
-
-      if (!authResult.success) {
-        Alert.alert(
-          "FALHA DE AUTENTICAÇÃO",
-          "Acesso negado. A assinatura biométrica é obrigatória para a extração de fundos.",
-        );
-        setIsProcessing(false);
-        return;
-      }
-
-      console.log("[SISTEMA] Sincronizando cotação USDT/BRL atual...");
-
-      // 3. Obter cotação atual do USDT em BRL (usando a API pública da Binance)
-      const binanceRes = await fetch(
-        "https://api.binance.com/api/v3/ticker/price?symbol=USDTBRL",
-      );
-      const binanceData = await binanceRes.json();
-      const currentUsdtPrice = parseFloat(binanceData.price);
-
-      // Calcula o equivalente em USDT (USDT na rede Ethereum usa 6 casas decimais)
-      const usdtAmountToSend = (numericAmount / currentUsdtPrice).toFixed(6);
-
-      console.log(
-        `[SISTEMA] Câmbio: R$ ${numericAmount} equivale a ~${usdtAmountToSend} USDT`,
-      );
-
-      // 4. Conectar à Blockchain
-      const provider = new ethers.JsonRpcProvider(
-        "https://eth-mainnet.g.alchemy.com/v2/T3-iK_3wijCdj7_O79nij",
-      );
-
-      // ALERTA: Considere migrar esta chave privada para uma arquitetura segura no backend
-      const userPrivateKey = process.env.EXPO_PUBLIC_API_SECRET;
-
-      if (!userPrivateKey) {
-        throw new Error("Chave privada não encontrada no ambiente.");
-      }
-
-      const wallet = new ethers.Wallet(userPrivateKey, provider);
-
-      console.log(
-        "[SISTEMA] Inicializando uplink com contrato inteligente ERC-20...",
-      );
-
-      // 5. Instanciar o contrato do USDT e enviar os fundos
-      const HOT_WALLET_ADDRESS = "0xa0860442611869213eEDcB1A8b855C644E094c71";
-      const USDT_CONTRACT_ADDRESS =
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // Contrato oficial do USDT na Mainnet
-
-      // ABI mínima do ERC-20 para realizar transferências
-      const erc20Abi = [
-        "function transfer(address to, uint256 amount) returns (bool)",
-      ];
-
-      const usdtContract = new ethers.Contract(
-        USDT_CONTRACT_ADDRESS,
-        erc20Abi,
-        wallet,
-      );
-
-      // Converte a string decimal em BigInt, respeitando as 6 casas do USDT
-      const parsedAmount = ethers.parseUnits(usdtAmountToSend.toString(), 6);
-
-      // Executa a transação no contrato inteligente
-      const tx = await usdtContract.transfer(HOT_WALLET_ADDRESS, parsedAmount);
-
-      // Aguarda a rede Ethereum confirmar a transação do token
-      await tx.wait();
-
-      console.log(
-        `[SISTEMA] Transação ERC-20 validada na rede. TX_HASH: ${tx.hash}`,
-      );
-
-      // 6. Disparar Pix pelo Servidor
-      const response = await fetch(`${API_BASE_URL}/withdraw/pix`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transactionHash: tx.hash,
-          pixKey: pixKey,
-        }),
-      });
-
-      const serverData = await response.json();
-
-      if (response.ok && serverData.success) {
-        Alert.alert(
-          "TRANSFERÊNCIA CONCLUÍDA",
-          `Valor: R$ ${serverData.amount || numericAmount.toFixed(2)}\nAtivos redirecionados para: ${pixKey}`,
-        );
-        // Limpa os campos após o sucesso
-        setAmountBrl("");
-        setPixKey("");
-      } else {
-        Alert.alert(
-          "ERRO DE PROTOCOLO",
-          serverData.error || "Falha desconhecida no servidor.",
-        );
-      }
-    } catch (error) {
-      console.error("[ERRO_CRÍTICO] Falha no nó de processamento", error);
-      Alert.alert(
-        "FALHA NO SISTEMA",
-        "Anomalia detectada ao processar o contrato inteligente ou comunicar com o servidor.",
-      );
-    } finally {
-      setIsProcessing(false);
-    }
+    // Dispara a mutação do TanStack
+    withdrawMutation.mutate(numericAmount);
   }
 
   return (
     <View style={styles.container}>
-      {/* Elementos Decorativos HUD (Heads-Up Display) */}
       <View style={styles.hudHeader}>
         <View style={{ gap: 8 }}>
           <Text style={styles.hudText}>SEC_LINK: ESTABELECIDO</Text>
@@ -168,7 +164,7 @@ export default function WithdrawScreen() {
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.closeButton}
-          disabled={isProcessing}
+          disabled={withdrawMutation.isPending}
         >
           <Ionicons name="close" size={24} color="#888" />
         </TouchableOpacity>
@@ -188,6 +184,7 @@ export default function WithdrawScreen() {
           keyboardType="numeric"
           style={styles.input}
           selectionColor="#00f0ff"
+          editable={!withdrawMutation.isPending}
         />
       </View>
 
@@ -200,25 +197,31 @@ export default function WithdrawScreen() {
           onChangeText={setPixKey}
           style={styles.input}
           selectionColor="#00f0ff"
+          editable={!withdrawMutation.isPending}
         />
       </View>
 
       <TouchableOpacity
         onPress={handlePixWithdrawal}
-        disabled={isProcessing}
+        disabled={withdrawMutation.isPending}
         activeOpacity={0.7}
-        style={[styles.button, isProcessing && styles.buttonDisabled]}
+        style={[
+          styles.button,
+          withdrawMutation.isPending && styles.buttonDisabled,
+        ]}
       >
         <Text style={styles.buttonText}>
-          {isProcessing
+          {withdrawMutation.isPending
             ? "SINCRONIZANDO COM A REDE..."
             : "AUTORIZAR SAQUE [FACE_ID]"}
         </Text>
       </TouchableOpacity>
 
-      {/* Rodapé Decorativo */}
       <Text style={styles.footerText}>
-        STATUS: {isProcessing ? "PROCESSANDO_CONTRATO" : "AGUARDANDO_COMANDO"}
+        STATUS:{" "}
+        {withdrawMutation.isPending
+          ? "PROCESSANDO_CONTRATO"
+          : "AGUARDANDO_COMANDO"}
       </Text>
     </View>
   );
@@ -227,7 +230,7 @@ export default function WithdrawScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#05050A", // Fundo quase preto (Deep Space)
+    backgroundColor: "#05050A",
     padding: 24,
     justifyContent: "center",
   },
@@ -258,7 +261,7 @@ const styles = StyleSheet.create({
   hudText: {
     color: "#00f0ff",
     fontSize: 10,
-    fontFamily: "Courier", // Usa fonte monoespaçada nativa
+    fontFamily: "Courier",
     letterSpacing: 1.5,
     opacity: 0.7,
   },
@@ -271,7 +274,7 @@ const styles = StyleSheet.create({
     fontFamily: "Courier",
   },
   highlight: {
-    color: "#ff0055", // Magenta/Rosa Cyberpunk
+    color: "#ff0055",
     textShadowColor: "rgba(255, 0, 85, 0.8)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 10,
@@ -292,7 +295,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "rgba(0, 240, 255, 0.4)",
-    borderRadius: 4, // Bordas mais quadradas para visual tecnológico
+    borderRadius: 4,
     fontSize: 18,
     fontFamily: "Courier",
   },
@@ -308,7 +311,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 10,
-    elevation: 5, // Brilho no Android
+    elevation: 5,
   },
   buttonDisabled: {
     borderColor: "#444",

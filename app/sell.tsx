@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
@@ -16,7 +15,8 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import LinearGradient from "react-native-linear-gradient";
-import { api } from "@/server/api"; // Certifique-se da importação da sua API
+import { api } from "@/server/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 // --- CONFIGURAÇÃO DE DESIGN (CYBER DESIGN SYSTEM) ---
 const COLORS = {
@@ -48,16 +48,28 @@ const CyberBorder = ({ children, color = COLORS.CYAN, style }: any) => (
 );
 
 export default function SellScreen() {
+  const queryClient = useQueryClient();
+
   // 1. ESTADO E CONSTANTES
   const BALANCE_ETH = 1.45; // Em produção, virá do seu banco/contexto
   const PLATFORM_FEE_PERCENTAGE = 0.02; // 2% da plataforma
 
   const [amount, setAmount] = useState("");
-  const [ethRateBRL, setEthRateBRL] = useState(0);
-  const [loadingRate, setLoadingRate] = useState(true);
-  const [isExecuting, setIsExecuting] = useState(false);
 
-  // 2. LÓGICA DE VALIDAÇÃO E TAXAS
+  // 👇 2. BUSCA DE PREÇO COM TANSTACK QUERY
+  const { data: ethRateBRL = 0, isLoading: loadingRate } = useQuery({
+    queryKey: ["eth-price-brl"],
+    queryFn: async () => {
+      const response = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=brl",
+      );
+      const data = await response.json();
+      return data.ethereum.brl;
+    },
+    refetchInterval: 15000, // Atualiza sozinho a cada 15s
+  });
+
+  // 3. LÓGICA DE VALIDAÇÃO E TAXAS
   const numericAmount = parseFloat(amount.replace(",", ".")) || 0;
   const isOverBalance = numericAmount > BALANCE_ETH;
   const isInvalid = !amount || numericAmount <= 0 || isOverBalance;
@@ -66,81 +78,58 @@ export default function SellScreen() {
   const feeAmountETH = numericAmount * PLATFORM_FEE_PERCENTAGE;
   const sellableAmountETH = numericAmount - feeAmountETH;
 
-  // 3. BUSCA DE PREÇO
-  const fetchEthPrice = useCallback(async () => {
-    try {
-      const response = await fetch(
-        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=brl",
-      );
-      const data = await response.json();
-      if (data?.ethereum?.brl) {
-        setEthRateBRL(data.ethereum.brl);
+  // 👇 4. MUTAÇÃO PARA LIQUIDAÇÃO
+  const sellMutation = useMutation({
+    mutationFn: async (amountInETH: number) => {
+      const response = await api.post("/sell-eth", { amountInETH });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Falha na execução.");
       }
-    } catch (error) {
-      console.log("Erro ao buscar cotação:", error);
-    } finally {
-      setLoadingRate(false);
-    }
-  }, []);
+      return response.data.receipt;
+    },
+    onSuccess: async (receipt) => {
+      // INVALIDE O CACHE DA DASHBOARD AQUI
+      queryClient.invalidateQueries({ queryKey: ["wallet-binance"] });
 
-  useEffect(() => {
-    fetchEthPrice();
-    const interval = setInterval(fetchEthPrice, 15000);
-    return () => clearInterval(interval);
-  }, [fetchEthPrice]);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-  // 4. HANDLERS
+      let successMessage = "Liquidação executada com sucesso.";
+      if (receipt) {
+        successMessage =
+          `Quantia Retirada: ${receipt.requestedAmountETH} ETH\n` +
+          `Taxa do Protocolo: ${receipt.platformFeeETH.toFixed(4)} ETH\n` +
+          `Liquidado no Mercado: ${receipt.actualExecutedOnBinanceETH} ETH`;
+      }
+
+      Alert.alert("PROTOCOLO CONCLUÍDO", successMessage, [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    },
+    onError: async (error: any) => {
+      console.error(error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "FALHA NO PROTOCOLO",
+        error.message || "Não foi possível liquidar o ativo.",
+      );
+    },
+  });
+
+  // 5. HANDLERS
   const handleMax = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setAmount(BALANCE_ETH.toString());
   };
 
-  const handleExecuteSell = async () => {
+  const handleExecuteSell = () => {
     if (isInvalid) return;
-    setIsExecuting(true);
-
-    try {
-      // Dispara para o endpoint que você criou no Node
-      const response = await api.post("/sell-eth", {
-        amountInETH: numericAmount,
-      });
-
-      if (response.data.success) {
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        );
-
-        const receipt = response.data.receipt;
-        let successMessage = "Liquidação executada com sucesso.";
-
-        if (receipt) {
-          successMessage =
-            `Quantia Retirada: ${receipt.requestedAmountETH} ETH\n` +
-            `Taxa do Protocolo: ${receipt.platformFeeETH.toFixed(4)} ETH\n` +
-            `Liquidado no Mercado: ${receipt.actualExecutedOnBinanceETH} ETH`;
-        }
-
-        Alert.alert("PROTOCOLO CONCLUÍDO", successMessage, [
-          { text: "OK", onPress: () => router.back() },
-        ]);
-      } else {
-        throw new Error(response.data.message || "Falha na execução.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        "FALHA NO PROTOCOLO",
-        error.response?.data?.message || "Não foi possível liquidar o ativo.",
-      );
-    } finally {
-      setIsExecuting(false);
-    }
+    sellMutation.mutate(numericAmount);
   };
 
-  // 5. CÁLCULO DE RECEBIMENTO (Baseado no valor com taxa descontada)
+  // 6. CÁLCULO DE RECEBIMENTO (Baseado no valor com taxa descontada)
   const receiveAmountBRL =
-    sellableAmountETH > 0
+    sellableAmountETH > 0 && ethRateBRL > 0
       ? (sellableAmountETH * ethRateBRL).toLocaleString("pt-BR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
@@ -160,7 +149,7 @@ export default function SellScreen() {
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => router.back()}
-              disabled={isExecuting}
+              disabled={sellMutation.isPending}
             >
               <Ionicons name="close" size={24} color={COLORS.CYAN} />
             </TouchableOpacity>
@@ -183,7 +172,7 @@ export default function SellScreen() {
                   value={amount}
                   onChangeText={setAmount}
                   selectionColor={COLORS.CYAN}
-                  editable={!isExecuting}
+                  editable={!sellMutation.isPending}
                 />
                 <View
                   style={[
@@ -225,7 +214,7 @@ export default function SellScreen() {
                 <TouchableOpacity
                   style={styles.maxButton}
                   onPress={handleMax}
-                  disabled={isExecuting}
+                  disabled={sellMutation.isPending}
                 >
                   <Text style={styles.maxButtonText}>MÁX</Text>
                 </TouchableOpacity>
@@ -292,12 +281,12 @@ export default function SellScreen() {
           <View style={styles.footer}>
             <TouchableOpacity
               activeOpacity={0.8}
-              disabled={isInvalid || isExecuting}
+              disabled={isInvalid || sellMutation.isPending}
               onPress={handleExecuteSell}
             >
               <LinearGradient
                 colors={
-                  isInvalid || isExecuting
+                  isInvalid || sellMutation.isPending
                     ? [COLORS.GREY, COLORS.GREY]
                     : [COLORS.MAGENTA, "#800080"]
                 }
@@ -305,7 +294,7 @@ export default function SellScreen() {
                 end={{ x: 1, y: 1 }}
                 style={styles.primaryButton}
               >
-                {isExecuting ? (
+                {sellMutation.isPending ? (
                   <ActivityIndicator color={COLORS.CYAN} />
                 ) : (
                   <Text
@@ -328,7 +317,6 @@ export default function SellScreen() {
   );
 }
 
-// --- ESTILOS ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.BLACK },
   inner: { flex: 1 },

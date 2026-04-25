@@ -14,33 +14,31 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { api } from "@/server/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export default function BuyScreen() {
   const [usdtAmount, setUsdtAmount] = useState("");
   const [ethAmount, setEthAmount] = useState("0.000000");
-  const [ethPrice, setEthPrice] = useState(0);
-  const [loading, setLoading] = useState(false);
+
+  const queryClient = useQueryClient();
 
   const MIN_PURCHASE_USDT = 10.0;
   const PLATFORM_FEE_PERCENTAGE = 0.02; // 2% da plataforma
 
-  useEffect(() => {
-    async function fetchPrice() {
-      try {
-        const response = await fetch(
-          "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
-        );
-        const data = await response.json();
+  // 👇 1. Substituímos o useEffect pelo useQuery para o preço do ETH
+  const { data: ethPrice = 0 } = useQuery({
+    queryKey: ["eth-price-usd"],
+    queryFn: async () => {
+      const response = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+      );
+      const data = await response.json();
+      return data.ethereum.usd;
+    },
+    refetchInterval: 15000, // Atualiza a cotação a cada 15 segundos enquanto a tela estiver aberta
+  });
 
-        setEthPrice(data.ethereum.usd);
-      } catch (error) {
-        console.error("Erro ao buscar cotação:", error);
-      }
-    }
-    fetchPrice();
-  }, []);
-
-  // Recalcula a estimativa de ETH já descontando a taxa da plataforma
+  // Recalcula a estimativa de ETH
   useEffect(() => {
     const val = parseFloat(usdtAmount.replace(",", "."));
     if (!isNaN(val) && val > 0 && ethPrice > 0) {
@@ -61,7 +59,45 @@ export default function BuyScreen() {
     setUsdtAmount(cleaned);
   };
 
-  const handlePurchase = async () => {
+  // 👇 2. Criamos a Mutação para a Compra
+  const buyMutation = useMutation({
+    mutationFn: async (cleanAmount: number) => {
+      const response = await api.post("/buy-eth", {
+        amountInUSDT: cleanAmount,
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || "Falha na execução.");
+      }
+      return response.data.receipt;
+    },
+    onSuccess: (receipt) => {
+      // 👇 A MÁGICA: Invalida o cache da Dashboard
+      queryClient.invalidateQueries({ queryKey: ["wallet-binance"] });
+
+      let successMessage = "Ordem executada com sucesso na Binance.";
+      if (receipt) {
+        successMessage =
+          `Valor Solicitado: $${receipt.requestedAmount}\n` +
+          `Taxa Retida (2%): $${receipt.platformFeeApplied.toFixed(2)}\n` +
+          `Executado na Rede: $${receipt.actualExecutedOnBinance}`;
+      }
+
+      Alert.alert("TRANSAÇÃO CONCLUÍDA", successMessage, [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    },
+    onError: (error: any) => {
+      console.error(error);
+      Alert.alert(
+        "FALHA NO CONTRATO",
+        error.message ||
+          "Não foi possível conectar com a Binance. Verifique seu saldo em USDT.",
+      );
+    },
+  });
+
+  const handlePurchase = () => {
     const cleanAmount = parseFloat(usdtAmount);
 
     if (!usdtAmount || isNaN(cleanAmount) || cleanAmount <= 0) {
@@ -80,40 +116,8 @@ export default function BuyScreen() {
       return;
     }
 
-    setLoading(true);
-    try {
-      const response = await api.post("/buy-eth", {
-        amountInUSDT: cleanAmount,
-      });
-
-      if (response.data.success) {
-        // Lendo o recibo gerado pelo backend
-        const receipt = response.data.receipt;
-
-        let successMessage = "Ordem executada com sucesso na Binance.";
-        if (receipt) {
-          successMessage =
-            `Valor Solicitado: $${receipt.requestedAmount}\n` +
-            `Taxa Retida (2%): $${receipt.platformFeeApplied.toFixed(2)}\n` +
-            `Executado na Rede: $${receipt.actualExecutedOnBinance}`;
-        }
-
-        Alert.alert("TRANSAÇÃO CONCLUÍDA", successMessage, [
-          { text: "OK", onPress: () => router.back() },
-        ]);
-      } else {
-        throw new Error(response.data.message || "Falha na execução.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert(
-        "FALHA NO CONTRATO",
-        error.response?.data?.message ||
-          "Não foi possível conectar com a Binance. Verifique seu saldo em USDT.",
-      );
-    } finally {
-      setLoading(false);
-    }
+    // Dispara a mutação
+    buyMutation.mutate(cleanAmount);
   };
 
   return (
@@ -131,7 +135,7 @@ export default function BuyScreen() {
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.closeButton}
-          disabled={loading}
+          disabled={buyMutation.isPending}
         >
           <Ionicons name="close" size={24} color="#888" />
         </TouchableOpacity>
@@ -153,7 +157,7 @@ export default function BuyScreen() {
             keyboardType="decimal-pad"
             value={usdtAmount}
             onChangeText={handleAmountChange}
-            editable={!loading}
+            editable={!buyMutation.isPending}
             autoFocus
           />
           <Text style={styles.currencySuffix}>USDT</Text>
@@ -169,7 +173,6 @@ export default function BuyScreen() {
           <Text style={styles.conversionText}>≈ {ethAmount} ETH</Text>
         </View>
 
-        {/* Caixa de Informações Estilo Terminal */}
         <View style={styles.receiptBox}>
           <View style={styles.receiptRow}>
             <Text style={styles.receiptLabel}>NETWORK_RATE</Text>
@@ -209,17 +212,16 @@ export default function BuyScreen() {
         </View>
       </ScrollView>
 
-      {/* Footer Fixo */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[
             styles.primaryButton,
-            loading && styles.primaryButtonDisabled,
+            buyMutation.isPending && styles.primaryButtonDisabled,
           ]}
           onPress={handlePurchase}
-          disabled={loading}
+          disabled={buyMutation.isPending}
         >
-          {loading ? (
+          {buyMutation.isPending ? (
             <ActivityIndicator color="#000" />
           ) : (
             <Text style={styles.primaryButtonText}>EXECUTE ORDER</Text>
