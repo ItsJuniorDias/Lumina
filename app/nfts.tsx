@@ -94,7 +94,13 @@ export default function NFTsScreen() {
         ) : (
           <View style={styles.listContainer}>
             {marketItems.map((item) => (
-              <View
+              <TouchableOpacity
+                onPress={() =>
+                  router.push({
+                    pathname: "/collection-details",
+                    params: { collection: JSON.stringify(item) },
+                  })
+                } // <-- Navega para a página de detalhes do NFT
                 key={item._id}
                 style={[
                   styles.card,
@@ -121,15 +127,36 @@ export default function NFTsScreen() {
 
                     <View style={styles.priceBox}>
                       <Text style={styles.priceLabel}>ASKING_PRICE</Text>
-                      <Text style={styles.priceValue}>${item.priceUSD}</Text>
+                      <Text style={styles.priceValue}>
+                        $
+                        {Number(item.priceUSD).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </Text>
                     </View>
                   </View>
 
-                  <TouchableOpacity onPress={() => {}} style={styles.buyBadge}>
+                  {/* [ NEW_NODE_INJECTED ] Renderização da Descrição */}
+                  {item.description ? (
+                    <Text style={styles.description} numberOfLines={2}>
+                      // {item.description}
+                    </Text>
+                  ) : null}
+
+                  <TouchableOpacity
+                    onPress={() =>
+                      router.push({
+                        pathname: "/collection-details",
+                        params: { collection: JSON.stringify(item) },
+                      })
+                    }
+                    style={styles.buyBadge}
+                  >
                     <Text style={styles.buyText}>&gt; INITIATE_TRANSFER</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -241,6 +268,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 16,
     fontFamily: "Courier",
+  },
+  description: {
+    color: "#8E8E93",
+    fontFamily: "Courier",
+    fontSize: 12,
+    marginBottom: 16,
+    lineHeight: 18,
   },
   buyBadge: {
     backgroundColor: "rgba(57, 255, 20, 0.1)",

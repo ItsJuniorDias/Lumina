@@ -47,16 +47,21 @@ export default function ProfileScreen() {
 
   // 2. Função para o fluxo do pagarme (compra de cripto)
   const handleBuyCrypto = async () => {
+    // BLOQUEIO SE NÃO ESTIVER CONECTADO
+    if (!isConnected) {
+      Alert.alert(
+        "Acesso Negado",
+        "Por favor, conecte sua carteira para comprar criptomoedas.",
+      );
+      return;
+    }
     router.push("/buy-crypto");
   };
 
   // 3. Função para Gerenciar
   const handleManageCrypto = async () => {
     if (!isConnected) {
-      Alert.alert(
-        "Carteira não conectada",
-        "Por favor, conecte sua carteira primeiro.",
-      );
+      Alert.alert("Acesso Negado", "Por favor, conecte sua carteira primeiro.");
       return;
     }
     Alert.alert("Gerenciar", "Navegando para detalhes da carteira...");
@@ -64,7 +69,14 @@ export default function ProfileScreen() {
 
   // 4. NOVO: Função para navegar até a lista de NFTs
   const handleViewNFTs = () => {
-    // Supondo que a rota para a tela de NFTs seja "/nfts"
+    // BLOQUEIO SE NÃO ESTIVER CONECTADO
+    if (!isConnected) {
+      Alert.alert(
+        "Acesso Negado",
+        "Por favor, conecte sua carteira para visualizar seus NFTs.",
+      );
+      return;
+    }
     router.push("/nfts");
   };
 
@@ -116,14 +128,10 @@ export default function ProfileScreen() {
 
         <View style={styles.divider} />
 
-        {/* NOVO: Botão de Meus NFTs */}
+        {/* Botão de Meus NFTs */}
         <TouchableOpacity style={styles.actionRow} onPress={handleViewNFTs}>
           <View style={styles.actionIcon}>
-            <SymbolView
-              name="photo.stack.fill"
-              size={26}
-              tintColor="#AF52DE" // Roxo estilo iOS para diferenciar os NFTs
-            />
+            <SymbolView name="photo.stack.fill" size={26} tintColor="#AF52DE" />
           </View>
           <Text style={styles.actionText}>NFTs</Text>
           <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
@@ -167,6 +175,7 @@ export default function ProfileScreen() {
       {/* Ajustes Gerais */}
       <Text style={styles.sectionTitle}>Ajustes</Text>
       <View style={styles.actionGroup}>
+        {/* Deixei os ajustes sem trava de carteira, pois geralmente configurações gerais de perfil independem do login web3 */}
         <TouchableOpacity style={styles.actionRow}>
           <View style={styles.actionIcon}>
             <SymbolView name="gearshape.fill" size={26} tintColor="#8E8E93" />

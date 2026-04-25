@@ -15,7 +15,7 @@ import { SymbolView } from "expo-symbols";
 import { BlurView } from "expo-blur";
 import * as Notifications from "expo-notifications";
 import * as Clipboard from "expo-clipboard";
-import { api } from "@/server/api"; // Substitua pelo caminho real do seu axios
+import { api } from "@/server/api";
 import { useWalletConnectModal } from "@walletconnect/modal-react-native";
 
 // Configuração para exibir notificações no topo mesmo com o app aberto
@@ -39,11 +39,14 @@ export default function CollectionDetailsScreen() {
     "IDLE" | "GENERATING" | "WAITING_PAYMENT" | "SUCCESS"
   >("IDLE");
 
+  // [ NEW_NODE ] Estado dos dados dinâmicos do mercado
+  const [marketStats, setMarketStats] = useState({
+    volumeUSD: 0,
+    change24h: 0,
+    isSyncing: true,
+  });
+
   const { address } = useWalletConnectModal();
-
-  console.log("ENDEREÇO DA CARTEIRA:", address); // Log para verificar o endereço retornado pelo WalletConnect
-
-  // Mock do seu Vault conectado. No app real, puxe isso do seu estado global (Zustand/Context)
   const savedWalletAddress = address;
 
   // Listener do Webhook (Notificações)
@@ -54,14 +57,12 @@ export default function CollectionDetailsScreen() {
 
         if (payload?.tipo === "DEPOSITO_PIX") {
           console.log("// SINAL RECEBIDO: FIAT CONFIRMADO");
-          // Opcional: Você pode mudar a UI para "Processando Swap..." se quiser ser mais granular
         }
 
         if (payload?.tipo === "SWAP_CRIPTO") {
           console.log("// SINAL RECEBIDO: CRIPTO TRANSFERIDA");
           setTransactionStatus("SUCCESS");
 
-          // Fecha o modal automaticamente após o sucesso
           setTimeout(() => {
             setIsCheckoutVisible(false);
             setTransactionStatus("IDLE");
@@ -74,49 +75,82 @@ export default function CollectionDetailsScreen() {
     return () => subscription.remove();
   }, []);
 
-  // Parsing seguro dos dados da coleção
-  let collectionData;
+  // [ NEW_NODE ] Fetch Dinâmico de ESTATÍSTICAS DO MERCADO
+  useEffect(() => {
+    const fetchMarketTelemetry = async () => {
+      try {
+        // Exemplo: Buscando dados reais de volume global via CoinGecko API
+        // Você pode trocar por: await api.get(`/asset-stats/${_id}`)
+        const response = await fetch(
+          "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true",
+        );
+        const data = await response.json();
+
+        setMarketStats({
+          volumeUSD: data.ethereum.usd_24h_vol,
+          change24h: data.ethereum.usd_24h_change,
+          isSyncing: false,
+        });
+      } catch (error) {
+        console.warn(
+          "[ TELEMETRY_ERROR ] Usando dados de fallback da cache.",
+          error,
+        );
+        // Fallback caso a API falhe ou dê rate limit
+        setMarketStats({
+          volumeUSD: 0,
+          change24h: 0,
+          isSyncing: false,
+        });
+      }
+    };
+
+    fetchMarketTelemetry();
+  }, []);
+
+  // Parsing seguro dos dados do novo formato de contrato
+  let assetData;
   try {
-    collectionData = JSON.parse(item.collection as string);
+    assetData = JSON.parse((item.asset || item.collection) as string);
   } catch (error) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>ERRO CRÍTICO: DADOS CORROMPIDOS</Text>
+        <Text style={styles.errorText}>
+          [ ERRO CRÍTICO: DADOS CORROMPIDOS ]
+        </Text>
       </View>
     );
   }
 
   const {
-    name = "UNKNOWN_NODE",
-    id = "0x00000000000000000",
+    nftName = "UNKNOWN_NODE",
+    _id = "0x00000000000000000",
     image = "",
-    floorPriceUSD = "0",
-    volumeChange24h = "0",
-    volumeUSD = "0",
-    uiModifiers = {},
-  } = collectionData;
+    priceUSD = 0,
+    glowColor = "#00FFFF",
+    sellerAddress = "0x0000",
+    description = "",
+  } = assetData;
 
-  const glowColor = uiModifiers.glowColor || "#00FFFF";
-  const glassIntensity = uiModifiers.glassIntensity || 0.5;
-  const volChange = parseFloat(volumeChange24h);
+  const glassIntensity = 0.5;
+
+  // Usando os dados do estado (API) em vez de hardcoded
+  const volChange = marketStats.change24h;
   const isVolPositive = volChange >= 0;
 
-  const convertUSDToBRL = (usd) => {
-    const exchangeRate = 5.0;
+  const convertUSDToBRL = (usd: number) => {
+    const exchangeRate = 5.0; // Pode ser alterado para buscar dinâmica também
     return usd * exchangeRate;
   };
 
-  console.log(convertUSDToBRL(parseFloat(floorPriceUSD)), "FLOOR PRICE BRL");
-
-  // Handler para iniciar o fluxo de compra
   const handleAdquirirPosicao = async () => {
     setIsCheckoutVisible(true);
     setTransactionStatus("GENERATING");
 
     if (!address) {
       Alert.alert(
-        "Carteira não conectada",
-        "Por favor, conecte sua carteira para adquirir posição.",
+        "CONEXÃO_FALHA",
+        "Conecte sua carteira na rede principal para prosseguir.",
       );
       setIsCheckoutVisible(false);
       setTransactionStatus("IDLE");
@@ -124,18 +158,14 @@ export default function CollectionDetailsScreen() {
     }
 
     try {
-      // 1. Pegar o Push Token real do aparelho para o Webhook saber quem notificar
       const { data: pushToken } = await Notifications.getExpoPushTokenAsync();
-
-      // 2. Chamar a API passando BRL (Mock de R$ 500 para teste) e a carteira salva
-      const amountInBRL = convertUSDToBRL(parseFloat(floorPriceUSD));
-
-      console.log("AMOUNT EM BRL PARA O BACKEND:", amountInBRL);
+      const amountInBRL = convertUSDToBRL(Number(priceUSD));
 
       const response = await api.post("/create-pix", {
         amountInBRL,
         walletAddress: savedWalletAddress,
         pushToken: pushToken,
+        assetId: _id,
       });
 
       if (response.data.success) {
@@ -143,7 +173,10 @@ export default function CollectionDetailsScreen() {
         setTransactionStatus("WAITING_PAYMENT");
       }
     } catch (error) {
-      Alert.alert("ERRO DE PROTOCOLO", "Falha ao gerar canal de pagamento.");
+      Alert.alert(
+        "ERRO_DE_PROTOCOLO",
+        "Falha na geração do canal de liquidez.",
+      );
       setIsCheckoutVisible(false);
       setTransactionStatus("IDLE");
     }
@@ -152,13 +185,12 @@ export default function CollectionDetailsScreen() {
   const copyToClipboard = async () => {
     if (pixData?.pixCopiaECola) {
       await Clipboard.setStringAsync(pixData.pixCopiaECola);
-      Alert.alert("COPIADO", "Chave injetada na área de transferência.");
+      Alert.alert("COPIADO", "Chave de transferência alocada na memória.");
     }
   };
 
   return (
     <View style={styles.container}>
-      {/* Header / Navegação */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -184,7 +216,6 @@ export default function CollectionDetailsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Imagem em Destaque */}
         <View
           style={[
             styles.heroImageContainer,
@@ -201,35 +232,48 @@ export default function CollectionDetailsScreen() {
 
           <View style={styles.idBadge}>
             <Text style={styles.idText} numberOfLines={1}>
-              {id.substring(0, 10)}...{id.substring(id.length - 6)}
+              ID: {_id.substring(0, 8)}...{_id.substring(_id.length - 6)}
             </Text>
           </View>
         </View>
 
-        {/* Título e Decoração */}
         <View style={styles.titleContainer}>
           <Text style={[styles.title, { textShadowColor: glowColor }]}>
-            {name}
+            {nftName}
+          </Text>
+          <Text style={styles.sellerText}>
+            SELLER: {sellerAddress.slice(0, 6)}...{sellerAddress.slice(-4)}
           </Text>
           <View
             style={[styles.titleUnderline, { backgroundColor: glowColor }]}
           />
         </View>
 
-        {/* Painel de Estatísticas */}
+        {description ? (
+          <View
+            style={[
+              styles.descriptionContainer,
+              { borderLeftColor: glowColor },
+            ]}
+          >
+            <Text style={styles.sectionLabel}>// SYSTEM_LOGS_DESC</Text>
+            <Text style={styles.descriptionText}>{description}</Text>
+          </View>
+        ) : null}
+
         <BlurView
           intensity={glassIntensity * 100}
           tint="dark"
           style={[styles.statsPanel, { borderColor: glowColor }]}
         >
-          <Text style={styles.panelTitle}>// MÉTRICAS_DE_MERCADO</Text>
+          <Text style={styles.panelTitle}>// DADOS_DO_CONTRATO</Text>
 
           <View style={styles.statsGrid}>
             <View style={styles.statBox}>
-              <Text style={styles.statLabel}>FLOOR PRICE</Text>
+              <Text style={styles.statLabel}>ASKING PRICE</Text>
               <Text style={[styles.statValue, { color: glowColor }]}>
                 ${" "}
-                {parseFloat(floorPriceUSD).toLocaleString("en-US", {
+                {Number(priceUSD).toLocaleString("en-US", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
@@ -237,31 +281,39 @@ export default function CollectionDetailsScreen() {
             </View>
 
             <View style={styles.statBox}>
-              <Text style={styles.statLabel}>VOLUME TOTAL</Text>
-              <Text style={styles.statValue}>
-                ${" "}
-                {parseFloat(volumeUSD).toLocaleString("en-US", {
-                  maximumFractionDigits: 0,
-                })}
-              </Text>
+              <Text style={styles.statLabel}>GLOBAL VOLUME</Text>
+              {marketStats.isSyncing ? (
+                <Text style={styles.statValueLoading}>SYNCING...</Text>
+              ) : (
+                <Text style={styles.statValue}>
+                  $
+                  {marketStats.volumeUSD.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </Text>
+              )}
             </View>
 
             <View style={[styles.statBox, styles.statBoxFull]}>
-              <Text style={styles.statLabel}>FLUTUAÇÃO 24H</Text>
-              <Text
-                style={[
-                  styles.statValueLarge,
-                  isVolPositive ? styles.positiveText : styles.negativeText,
-                ]}
-              >
-                {isVolPositive ? "+" : ""}
-                {volChange.toFixed(2)}%
-              </Text>
+              <Text style={styles.statLabel}>INDEX_24H</Text>
+              {marketStats.isSyncing ? (
+                <Text style={styles.statValueLoading}>SYNCING...</Text>
+              ) : (
+                <Text
+                  style={[
+                    styles.statValueLarge,
+                    isVolPositive ? styles.positiveText : styles.negativeText,
+                  ]}
+                >
+                  {isVolPositive ? "+" : ""}
+                  {volChange.toFixed(2)}%
+                </Text>
+              )}
             </View>
           </View>
         </BlurView>
 
-        {/* Botão de Ação Cyberpunk que inicia o Checkout */}
         <TouchableOpacity
           style={[
             styles.actionButton,
@@ -276,12 +328,11 @@ export default function CollectionDetailsScreen() {
               { color: glowColor, textShadowColor: glowColor },
             ]}
           >
-            [ ADQUIRIR POSIÇÃO ]
+            [ EXECUTAR SMART CONTRACT ]
           </Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* --- MODAL DE CHECKOUT TERMINAL --- */}
       <Modal
         visible={isCheckoutVisible}
         transparent={true}
@@ -305,7 +356,6 @@ export default function CollectionDetailsScreen() {
                 </Text>
 
                 <View style={styles.qrCodePlaceholder}>
-                  {/* Se quiser renderizar o QR real, use react-native-qrcode-svg aqui */}
                   <SymbolView
                     name="qrcode.viewfinder"
                     size={60}
@@ -478,13 +528,40 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 10,
   },
+  sellerText: {
+    color: "#FF00FF",
+    fontFamily: "Courier",
+    fontSize: 12,
+    marginTop: 4,
+  },
   titleUnderline: {
     height: 3,
     width: 60,
-    marginTop: 8,
+    marginTop: 12,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
     shadowRadius: 5,
+  },
+  descriptionContainer: {
+    marginBottom: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.02)",
+    borderLeftWidth: 2,
+  },
+  sectionLabel: {
+    color: "#666670",
+    fontFamily: "Courier",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginBottom: 8,
+    letterSpacing: 1,
+  },
+  descriptionText: {
+    color: "#8E8E93",
+    fontFamily: "Courier",
+    fontSize: 14,
+    lineHeight: 22,
   },
   statsPanel: {
     borderWidth: 1,
@@ -531,6 +608,13 @@ const styles = StyleSheet.create({
     fontFamily: "Courier",
     color: "#FFF",
   },
+  statValueLoading: {
+    fontSize: 12,
+    fontWeight: "900",
+    fontFamily: "Courier",
+    color: "#00FFFF",
+    letterSpacing: 1,
+  },
   statValueLarge: {
     fontSize: 24,
     fontWeight: "900",
@@ -568,8 +652,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 5,
   },
-
-  // --- STYLES DO MODAL DE CHECKOUT ---
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(3, 3, 5, 0.9)",
