@@ -11,18 +11,17 @@ import { BlurView } from "expo-blur";
 import { SymbolView } from "expo-symbols";
 import { router } from "expo-router";
 
-// NOVO: Import do WalletConnect no lugar do MetaMask
+// Import do WalletConnect no lugar do MetaMask
 import { useWalletConnectModal } from "@walletconnect/modal-react-native";
 
 export default function ProfileScreen() {
   const [userName, setUserName] = useState("Usuário Anônimo");
 
-  // NOVO: Hook do WalletConnect. Ele já retorna se está conectado e o endereço.
+  // Hook do WalletConnect. Ele já retorna se está conectado e o endereço.
   const { open, isConnected, address, provider } = useWalletConnectModal();
 
   const handleDisconnect = async () => {
     try {
-      // Desconecta o provedor do WalletConnect (limpa a sessão com a Binance Wallet)
       if (provider) {
         await provider.disconnect();
       }
@@ -36,8 +35,6 @@ export default function ProfileScreen() {
   // 1. Função para Conectar via WalletConnect (Binance Wallet)
   const handleConnectWallet = async () => {
     try {
-      // Abre o modal do WalletConnect.
-      // O usuário poderá escolher "Binance Web3 Wallet" ou escanear o QR Code no app da Binance.
       await open();
     } catch (error) {
       console.error(error);
@@ -63,6 +60,12 @@ export default function ProfileScreen() {
       return;
     }
     Alert.alert("Gerenciar", "Navegando para detalhes da carteira...");
+  };
+
+  // 4. NOVO: Função para navegar até a lista de NFTs
+  const handleViewNFTs = () => {
+    // Supondo que a rota para a tela de NFTs seja "/nfts"
+    router.push("/nfts");
   };
 
   // Helper para formatar a visualização da wallet
@@ -104,10 +107,25 @@ export default function ProfileScreen() {
             <SymbolView
               name="bitcoinsign.circle.fill"
               size={26}
-              tintColor="#F3BA2F" // Cor amarela típica da Binance (opcional)
+              tintColor="#F3BA2F"
             />
           </View>
           <Text style={styles.actionText}>Gerenciar Cripto</Text>
+          <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
+        </TouchableOpacity>
+
+        <View style={styles.divider} />
+
+        {/* NOVO: Botão de Meus NFTs */}
+        <TouchableOpacity style={styles.actionRow} onPress={handleViewNFTs}>
+          <View style={styles.actionIcon}>
+            <SymbolView
+              name="photo.stack.fill"
+              size={26}
+              tintColor="#AF52DE" // Roxo estilo iOS para diferenciar os NFTs
+            />
+          </View>
+          <Text style={styles.actionText}>NFTs</Text>
           <SymbolView name="chevron.right" size={16} tintColor="#C7C7CC" />
         </TouchableOpacity>
 

@@ -42,6 +42,14 @@ export default function RootLayout() {
           <Stack.Screen name="saque-pix" options={{ presentation: "modal" }} />
           <Stack.Screen name="mentor" options={{ animation: "fade" }} />
 
+          <Stack.Screen
+            name="collection-details"
+            options={{ animation: "fade" }}
+          />
+          <Stack.Screen name="my-nft" options={{ animation: "fade" }} />
+          <Stack.Screen name="sell-nft" options={{ animation: "fade" }} />
+          <Stack.Screen name="marketplace" options={{ animation: "fade" }} />
+
           {/* Novas Telas de Ação como Modais */}
           <Stack.Screen name="receive" options={{ presentation: "modal" }} />
           <Stack.Screen name="sell" options={{ presentation: "modal" }} />
